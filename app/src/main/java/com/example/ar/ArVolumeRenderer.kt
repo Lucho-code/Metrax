@@ -228,13 +228,17 @@ class ArVolumeRenderer(
 
     private fun handleTap(frame: Frame, x: Float, y: Float) {
         if (frame.camera.trackingState != TrackingState.TRACKING) return
-        val hit = firstValidHit(frame.hitTest(x, y))
-        if (hit == null) {
-            pendingMessage = "No se detectó superficie en ese punto. Probá tocar sobre el contorno visible del material."
-            return
-        }
 
         if (calibrationModeActive) {
+            // Calibration taps land on an arbitrary real object (a tape measure,
+            // a known board) that may not sit on a detected plane or have a
+            // reliable surface normal, so accept the closest hit of any kind
+            // instead of the stricter criteria used for the toe/boundary points.
+            val hit = firstUsableHit(frame.hitTest(x, y))
+            if (hit == null) {
+                pendingMessage = "No se detectó ningún punto ahí. Probá acercarte o apuntar a una zona con más textura/luz."
+                return
+            }
             if (calibrationAnchors.size >= 2) {
                 calibrationAnchors.forEach { it.detach() }
                 calibrationAnchors.clear()
@@ -243,6 +247,11 @@ class ArVolumeRenderer(
             return
         }
 
+        val hit = firstValidHit(frame.hitTest(x, y))
+        if (hit == null) {
+            pendingMessage = "No se detectó superficie en ese punto. Probá tocar sobre el contorno visible del material."
+            return
+        }
         toeAnchors.add(hit.createAnchor())
         onToePointsChanged()
     }
@@ -359,6 +368,25 @@ class ArVolumeRenderer(
                 else -> false
             }
         }
+    }
+
+    /**
+     * Looser acceptance for calibration taps: the user is deliberately tapping an
+     * arbitrary real-world object (e.g. a tape measure laid on the ground) which
+     * may fall outside the currently-detected plane polygon or lack an estimated
+     * surface normal. Accept any Plane/DepthPoint/Point hit, and fall back to
+     * ARCore's closest hit of any kind rather than requiring a validated surface.
+     */
+    private fun firstUsableHit(hits: List<HitResult>): HitResult? {
+        val preferred = hits.firstOrNull { hit ->
+            when (val trackable = hit.trackable) {
+                is Plane -> trackable.trackingState == TrackingState.TRACKING
+                is DepthPoint -> true
+                is Point -> true
+                else -> false
+            }
+        }
+        return preferred ?: hits.firstOrNull()
     }
 
     private fun projectToScreen(worldX: Float, worldY: Float, worldZ: Float): Pair<Float, Float>? {

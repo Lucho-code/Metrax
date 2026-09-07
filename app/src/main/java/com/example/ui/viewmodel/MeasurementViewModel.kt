@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.sqrt
 
 class MeasurementViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -69,6 +68,22 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _lastCalibrationCorrection = MutableStateFlow<Double?>(null)
     val lastCalibrationCorrection: StateFlow<Double?> = _lastCalibrationCorrection.asStateFlow()
+
+    // Custom real-world length (meters) for the KNOWN_MEASUREMENT calibration source.
+    private val _knownLengthMeters = MutableStateFlow(1.0)
+    val knownLengthMeters: StateFlow<Double> = _knownLengthMeters.asStateFlow()
+
+    // Dedicated calibration tap flow: independent of the mode's own measurement
+    // points, so calibrating never interferes with (or depends on) whatever the
+    // user has already tapped to measure. Tap point A, then point B, then apply.
+    private val _calibrationTapModeActive = MutableStateFlow(false)
+    val calibrationTapModeActive: StateFlow<Boolean> = _calibrationTapModeActive.asStateFlow()
+
+    private val _calibrationTapPoints = MutableStateFlow<List<Point3D>>(emptyList())
+    val calibrationTapPoints: StateFlow<List<Point3D>> = _calibrationTapPoints.asStateFlow()
+
+    private val _calibrationTargetLengthMeters = MutableStateFlow(0.0)
+    val calibrationTargetLengthMeters: StateFlow<Double> = _calibrationTargetLengthMeters.asStateFlow()
 
     private val _trackingReady = MutableStateFlow(true)
     val trackingReady: StateFlow<Boolean> = _trackingReady.asStateFlow()
@@ -148,98 +163,91 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         _calibrationMethod.value = method
     }
 
-    /**
-     * Raw (pre-scale-correction) value for whatever is currently on screen, in the
-     * unit the active [mode] expects the user's known real value to be in: meters
-     * for DISTANCE, square meters for AREA/VOLUME's base. Null if there aren't
-     * enough points yet. Shown to the user so they know what they're correcting.
-     */
-    fun rawValueForCalibration(): Double? {
-        val currentPoints = _points.value
-        return when (_mode.value) {
-            MeasurementMode.DISTANCE -> {
-                if (currentPoints.size < 2) return null
-                var total = 0.0
-                for (i in 0 until currentPoints.size - 1) {
-                    total += GeometryUtils.distance3D(currentPoints[i], currentPoints[i + 1])
-                }
-                total * _scaleFactor.value
-            }
-            MeasurementMode.AREA -> {
-                if (currentPoints.size < 3) return null
-                calculateCurrentArea()
-            }
-            MeasurementMode.VOLUME -> {
-                if (currentPoints.size < 3 || _heightMeters.value <= 0.0) return null
-                calculateCurrentValue()
-            }
-        }
+    fun setKnownLengthMeters(meters: Double) {
+        _knownLengthMeters.value = meters.coerceAtLeast(0.01)
     }
 
     /**
-     * Calibrates by verification: the user measured something whose real value they
-     * already know (a wall, a known board, etc.) and reports the true value here.
-     * Recomputes [scaleFactor] so future measurements are corrected by the same ratio.
-     * Returns true if the correction was applied.
+     * Starts the dedicated calibration tap flow: closes the setup dialog and puts
+     * the live camera into "tap point A, then point B" mode, independent of
+     * whatever points the active measuring mode already has. The target real
+     * length comes from the selected reference preset (or its custom value) or
+     * from the typed-in known length, depending on [calibrationMethod].
+     * Returns false if no valid target length is available yet.
      */
-    fun calibrateFromKnownRealValue(trueValue: Double): Boolean {
-        if (trueValue <= 0.0) return false
-        val currentPoints = _points.value
-        val currentScale = _scaleFactor.value
-
-        val newScale = when (_mode.value) {
-            MeasurementMode.DISTANCE -> {
-                if (currentPoints.size < 2) return false
-                var rawTotal = 0.0
-                for (i in 0 until currentPoints.size - 1) {
-                    rawTotal += GeometryUtils.distance3D(currentPoints[i], currentPoints[i + 1])
-                }
-                if (rawTotal <= 0.0) return false
-                trueValue / rawTotal
-            }
-            MeasurementMode.AREA -> {
-                if (currentPoints.size < 3) return false
-                val rawArea = GeometryUtils.polygonArea3D(currentPoints)
-                if (rawArea <= 0.0) return false
-                sqrt(trueValue / rawArea)
-            }
-            MeasurementMode.VOLUME -> {
-                if (currentPoints.size < 3) return false
-                val rawArea = GeometryUtils.polygonArea3D(currentPoints)
-                val height = _heightMeters.value
-                if (rawArea <= 0.0 || height <= 0.0) return false
-                sqrt(trueValue / (rawArea * height))
-            }
-        }
-
-        if (newScale.isNaN() || newScale.isInfinite() || newScale <= 0.0) return false
-
-        _scaleFactor.value = newScale.coerceIn(0.02, 50.0)
-        _lastCalibrationCorrection.value = _scaleFactor.value / currentScale
-        _calibrationMethod.value = CalibrationMethod.KNOWN_MEASUREMENT
-        return true
-    }
-
-    /**
-     * Calibrates scale using first 2 points distance against selected reference object length.
-     */
-    fun calibrateScaleFromPoints() {
-        val currentPoints = _points.value
-        if (currentPoints.size >= 2) {
-            val pixelDist = GeometryUtils.distance3D(currentPoints[0], currentPoints[1])
-            val targetRefMeters = if (_calibrationPreset.value == CalibrationPreset.CUSTOM) {
+    fun beginCalibrationTapping(): Boolean {
+        val targetLength = when (_calibrationMethod.value) {
+            CalibrationMethod.REFERENCE_OBJECT -> if (_calibrationPreset.value == CalibrationPreset.CUSTOM) {
                 _customRefMeters.value
             } else {
                 _calibrationPreset.value.lengthMeters
             }
-
-            if (pixelDist > 0 && targetRefMeters > 0) {
-                // Adjust scale factor based on reference measurement
-                val newScale = targetRefMeters / pixelDist
-                _scaleFactor.value = newScale
-                _showCalibrationDialog.value = false
-            }
+            CalibrationMethod.KNOWN_MEASUREMENT -> _knownLengthMeters.value
         }
+        if (targetLength <= 0.0) return false
+
+        _calibrationTargetLengthMeters.value = targetLength
+        _calibrationTapPoints.value = emptyList()
+        _calibrationTapModeActive.value = true
+        _showCalibrationDialog.value = false
+        return true
+    }
+
+    /**
+     * Registers a calibration tap. A third tap restarts from point A so the user
+     * can always just keep tapping until both points look right.
+     */
+    fun addCalibrationTapPoint(point: Point3D) {
+        if (!_calibrationTapModeActive.value) return
+        val current = _calibrationTapPoints.value
+        _calibrationTapPoints.value = if (current.size >= 2) listOf(point) else current + point
+    }
+
+    fun undoCalibrationTapPoint() {
+        if (_calibrationTapPoints.value.isNotEmpty()) {
+            _calibrationTapPoints.value = _calibrationTapPoints.value.dropLast(1)
+        }
+    }
+
+    fun resetCalibrationTapPoints() {
+        _calibrationTapPoints.value = emptyList()
+    }
+
+    fun cancelCalibrationTapping() {
+        _calibrationTapModeActive.value = false
+        _calibrationTapPoints.value = emptyList()
+    }
+
+    /** What the app currently reads for the tapped segment, for on-screen feedback. */
+    fun calibrationTapRawDistance(): Double? {
+        val pts = _calibrationTapPoints.value
+        if (pts.size < 2) return null
+        return GeometryUtils.distance3D(pts[0], pts[1]) * _scaleFactor.value
+    }
+
+    /**
+     * Applies the calibration: compares the raw (pre-scale) distance between the
+     * two tapped points against the known real length and corrects [scaleFactor]
+     * by the resulting ratio. Returns true if the correction was applied.
+     */
+    fun applyCalibrationTap(): Boolean {
+        val pts = _calibrationTapPoints.value
+        if (pts.size < 2) return false
+        val targetLength = _calibrationTargetLengthMeters.value
+        if (targetLength <= 0.0) return false
+
+        val rawDistance = GeometryUtils.distance3D(pts[0], pts[1])
+        if (rawDistance <= 0.0) return false
+
+        val newScale = targetLength / rawDistance
+        if (newScale.isNaN() || newScale.isInfinite() || newScale <= 0.0) return false
+
+        val previousScale = _scaleFactor.value
+        _scaleFactor.value = newScale.coerceIn(0.02, 50.0)
+        _lastCalibrationCorrection.value = _scaleFactor.value / previousScale
+        _calibrationTapModeActive.value = false
+        _calibrationTapPoints.value = emptyList()
+        return true
     }
 
     fun addPoint(point: Point3D) {

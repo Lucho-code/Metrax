@@ -34,7 +34,7 @@ enum class CalibrationPreset(val displayName: String, val lengthMeters: Double) 
 /** How the active [scaleFactor] correction was (or should be) obtained. */
 enum class CalibrationMethod(val displayName: String) {
     REFERENCE_OBJECT("Objeto de referencia"),
-    KNOWN_MEASUREMENT("Verificación con medida real")
+    KNOWN_MEASUREMENT("Medida real conocida")
 }
 
 /**

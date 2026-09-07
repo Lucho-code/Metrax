@@ -588,11 +588,17 @@ private fun CalibrationPanel(
                     color = Color.White
                 )
             }
-            Text(
-                text = "Tocá los 2 extremos de un objeto de longitud conocida (ej. una cinta métrica extendida en el piso) y decime cuánto mide en realidad.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.LightGray
-            )
+            Surface(shape = RoundedCornerShape(10.dp), color = PrimaryOrange.copy(alpha = 0.12f)) {
+                Text(
+                    text = "1) Elegí un objeto de longitud conocida (ej. una cinta métrica extendida en el piso).\n" +
+                        "2) Tocá el punto INICIAL y después el FINAL sobre ese objeto, en la cámara.\n" +
+                        "3) Escribí cuánto mide en realidad y presioná \"Aplicar\".\n" +
+                        "Si un toque no marca nada, acercate o apuntá a una zona con más textura/luz.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.LightGray,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
 
             if (measuredDistance != null) {
                 Surface(shape = RoundedCornerShape(10.dp), color = SecondaryCyan.copy(alpha = 0.15f)) {
