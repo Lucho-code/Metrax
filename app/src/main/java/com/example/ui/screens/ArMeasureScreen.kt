@@ -1,10 +1,10 @@
 package com.example.ui.screens
 
 import android.graphics.Bitmap
-import android.graphics.PixelCopy
 import android.opengl.GLSurfaceView
 import android.os.Handler
 import android.os.Looper
+import android.view.PixelCopy
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
