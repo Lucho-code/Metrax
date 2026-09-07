@@ -5,14 +5,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
 import com.example.data.db.MeasurementEntity
+import com.example.data.db.PileEntity
 import com.example.data.model.CalibrationMethod
 import com.example.data.model.CalibrationPreset
+import com.example.data.model.MaterialType
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
 import com.example.data.repository.MeasurementRepository
 import com.example.util.GeometryUtils
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,8 +31,8 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val repository: MeasurementRepository
 
     init {
-        val dao = AppDatabase.getDatabase(application).measurementDao()
-        repository = MeasurementRepository(dao)
+        val db = AppDatabase.getDatabase(application)
+        repository = MeasurementRepository(db.measurementDao(), db.pileDao())
     }
 
     private val _mode = MutableStateFlow(MeasurementMode.DISTANCE)
@@ -93,6 +96,27 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _showSaveDialog = MutableStateFlow(false)
     val showSaveDialog: StateFlow<Boolean> = _showSaveDialog.asStateFlow()
+
+    // Material seleccionado para convertir volumen -> toneladas ("Reporte en toneladas").
+    // Es un estado compartido: tanto el modo manual como el AR lo leen y lo asignan
+    // al guardar una medición de VOLUMEN.
+    private val _selectedMaterial = MutableStateFlow(MaterialType.NONE)
+    val selectedMaterial: StateFlow<MaterialType> = _selectedMaterial.asStateFlow()
+
+    // Acopio/"Pile" activo: cuando el usuario entra a medir desde el detalle de un
+    // acopio, la próxima medición guardada queda asociada a ese acopio y luego se limpia.
+    private val _activePileId = MutableStateFlow<Long?>(null)
+    val activePileId: StateFlow<Long?> = _activePileId.asStateFlow()
+
+    val pilesList: StateFlow<List<PileEntity>> = repository.allPiles.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // Foto capturada de la cámara al guardar (modo manual), en almacenamiento interno de la app.
+    private val _capturedPhotoPath = MutableStateFlow<String?>(null)
+    val capturedPhotoPath: StateFlow<String?> = _capturedPhotoPath.asStateFlow()
 
     private val _historyFilter = MutableStateFlow("ALL") // ALL, DISTANCE, AREA, VOLUME
     val historyFilter: StateFlow<String> = _historyFilter.asStateFlow()
@@ -268,6 +292,51 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         _showSaveDialog.value = show
     }
 
+    fun setMaterial(material: MaterialType) {
+        _selectedMaterial.value = material
+    }
+
+    fun setActivePile(pileId: Long?) {
+        _activePileId.value = pileId
+    }
+
+    fun setCapturedPhotoPath(path: String?) {
+        _capturedPhotoPath.value = path
+    }
+
+    fun measurementsForPile(pileId: Long): Flow<List<MeasurementEntity>> =
+        repository.measurementsForPile(pileId)
+
+    fun pileById(pileId: Long): Flow<PileEntity?> = repository.pileById(pileId)
+
+    fun createPile(name: String, material: MaterialType) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            repository.insertPile(
+                PileEntity(
+                    name = name.trim(),
+                    materialType = if (material == MaterialType.NONE) null else material.name
+                )
+            )
+        }
+    }
+
+    fun deletePile(pileId: Long) {
+        viewModelScope.launch {
+            repository.deletePile(pileId)
+        }
+    }
+
+    /** Toneladas estimadas para el volumen actual, o null si no aplica (modo != VOLUME o sin material). */
+    fun calculateCurrentTonnage(): Double? {
+        if (_mode.value != MeasurementMode.VOLUME) return null
+        val material = _selectedMaterial.value
+        if (material == MaterialType.NONE) return null
+        val volume = calculateCurrentValue()
+        if (volume <= 0.0) return null
+        return volume * material.densityTonPerCubicMeter
+    }
+
     fun setHistoryFilter(filter: String) {
         _historyFilter.value = filter
     }
@@ -334,6 +403,9 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             }
         } else title
 
+        val tonnage = calculateCurrentTonnage()
+        val material = _selectedMaterial.value
+
         val entity = MeasurementEntity(
             mode = _mode.value.name,
             value = valCalculated,
@@ -341,13 +413,19 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             scaleFactor = _scaleFactor.value,
             title = defaultTitle,
             pointsJson = jsonArray.toString(),
-            planeType = _selectedPlane.value.name
+            planeType = _selectedPlane.value.name,
+            photoPath = _capturedPhotoPath.value,
+            materialType = if (tonnage != null) material.name else null,
+            tonnage = tonnage,
+            pileId = _activePileId.value
         )
 
         viewModelScope.launch {
             repository.insert(entity)
             _points.value = emptyList()
             _showSaveDialog.value = false
+            _capturedPhotoPath.value = null
+            _activePileId.value = null
         }
     }
 

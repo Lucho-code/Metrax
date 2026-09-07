@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
-import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.PixelCopy
+import android.opengl.GLSurfaceView
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -42,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,9 +67,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ar.ArAvailability
 import com.example.ar.ArTrackingStatus
+import com.example.data.model.ArVolumeResult
 import com.example.data.model.ConfidenceLevel
+import com.example.data.model.MaterialType
 import com.example.data.model.UnitSystem
 import com.example.ui.components.ArCameraView
+import com.example.ui.components.MaterialSelectorRow
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.AccentRose
 import com.example.ui.theme.PrimaryOrange
@@ -72,6 +80,8 @@ import com.example.ui.theme.SecondaryCyan
 import com.example.ui.viewmodel.ArMeasurementViewModel
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.PhotoStorage
+import com.example.util.ShareUtils
 
 private val PointCloudPalette = listOf(
     Color(0xFF4ADE80), // green
@@ -100,13 +110,53 @@ fun ArMeasureScreen(
     val isComputing by arViewModel.isComputing.collectAsStateWithLifecycle()
     val showSaveDialog by arViewModel.showSaveDialog.collectAsStateWithLifecycle()
     val unitSystem by sharedViewModel.unitSystem.collectAsStateWithLifecycle()
+    val selectedMaterial by sharedViewModel.selectedMaterial.collectAsStateWithLifecycle()
+    val activePileId by sharedViewModel.activePileId.collectAsStateWithLifecycle()
+    val pilesList by sharedViewModel.pilesList.collectAsStateWithLifecycle()
+    val capturedPhotoPath by arViewModel.capturedPhotoPath.collectAsStateWithLifecycle()
 
     var saveTitleInput by remember { mutableStateOf("") }
     var gridQuality by remember { mutableStateOf(GridQuality.MEDIUM) }
     var calibrationDistanceInput by remember { mutableStateOf("") }
+    var glSurfaceViewRef by remember { mutableStateOf<GLSurfaceView?>(null) }
+    var showContourMap by remember { mutableStateOf(false) }
 
     val toeCount = uiState.toePointsScreen.size
     val calibrationActive = uiState.calibrationModeActive
+    val activePileName = pilesList.firstOrNull { it.id == activePileId }?.name
+    val currentTonnage = arResult?.let { result ->
+        if (selectedMaterial == MaterialType.NONE) null
+        else result.volumeCubicMeters * selectedMaterial.densityTonPerCubicMeter
+    }
+
+    // Snapshot the AR camera view once a scan finishes, so the saved measurement
+    // carries a photo of the actual pile (like SR Measure's "Measurement Video/Photo").
+    LaunchedEffect(arResult) {
+        val result = arResult
+        val glView = glSurfaceViewRef
+        if (result == null) {
+            return@LaunchedEffect
+        }
+        if (glView == null || glView.width <= 0 || glView.height <= 0) {
+            return@LaunchedEffect
+        }
+        try {
+            val bitmap = Bitmap.createBitmap(glView.width, glView.height, Bitmap.Config.ARGB_8888)
+            PixelCopy.request(
+                glView,
+                bitmap,
+                { copyResult ->
+                    if (copyResult == PixelCopy.SUCCESS) {
+                        val path = PhotoStorage.savePhoto(context, bitmap)
+                        arViewModel.setCapturedPhotoPath(path)
+                    }
+                },
+                Handler(Looper.getMainLooper())
+            )
+        } catch (_: Exception) {
+            // Best-effort snapshot; a missing photo shouldn't block saving the measurement.
+        }
+    }
 
     if (showSaveDialog && arResult != null) {
         val result = arResult!!
@@ -136,12 +186,34 @@ fun ArMeasureScreen(
                             .fillMaxWidth()
                             .testTag("input_save_ar_title")
                     )
+                    Text(
+                        text = "Material (para reporte en toneladas)",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    MaterialSelectorRow(
+                        selected = selectedMaterial,
+                        onSelect = { sharedViewModel.setMaterial(it) }
+                    )
+                    if (currentTonnage != null) {
+                        Text(
+                            text = "≈ " + GeometryUtils.formatTonnage(currentTonnage, unitSystem),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = AccentEmerald
+                        )
+                    }
+                    if (activePileName != null) {
+                        Text(
+                            text = "📦 Se asignará al acopio: $activePileName",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        arViewModel.saveMeasurement(saveTitleInput)
+                        arViewModel.saveMeasurement(saveTitleInput, selectedMaterial, activePileId)
+                        sharedViewModel.setActivePile(null)
                         saveTitleInput = ""
                         Toast.makeText(context, "Medición AR guardada en el historial", Toast.LENGTH_SHORT).show()
                     },
@@ -170,7 +242,8 @@ fun ArMeasureScreen(
             onToePointsChanged = arViewModel::onToePointsChanged,
             onVolumeResult = arViewModel::onVolumeResult,
             onAvailabilityChanged = arViewModel::onAvailabilityChanged,
-            onRendererReady = arViewModel::onRendererReady
+            onRendererReady = arViewModel::onRendererReady,
+            onGlSurfaceViewReady = { glSurfaceViewRef = it }
         )
 
         // Point cloud + toe polygon overlay. No pointer input here on purpose:
@@ -400,7 +473,10 @@ fun ArMeasureScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Volumen Estimado", style = MaterialTheme.typography.labelMedium, color = Color.LightGray)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Volumen Estimado", style = MaterialTheme.typography.labelMedium, color = Color.LightGray)
+                            OverallConfidencePill(result.overallConfidenceLevel)
+                        }
                         Text(
                             text = GeometryUtils.formatVolume(result.volumeCubicMeters, unitSystem),
                             style = MaterialTheme.typography.headlineMedium.copy(
@@ -415,6 +491,13 @@ fun ArMeasureScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.LightGray
                         )
+                        if (currentTonnage != null) {
+                            Text(
+                                text = "≈ " + GeometryUtils.formatTonnage(currentTonnage, unitSystem) + " (${selectedMaterial.displayName})",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = AccentEmerald
+                            )
+                        }
 
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -422,6 +505,22 @@ fun ArMeasureScreen(
                         ) {
                             ConfidenceBadge("Cobertura Superficie", result.surfaceCoverageLevel)
                             ConfidenceBadge("Cobertura Contorno", result.toeCoverageLevel)
+                        }
+
+                        TextButton(onClick = { showContourMap = !showContourMap }) {
+                            Text(
+                                text = if (showContourMap) "Ocultar mapa de contornos" else "Ver mapa de contornos",
+                                color = SecondaryCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (showContourMap) {
+                            ContourMapPreview(
+                                result = result,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(160.dp)
+                            )
                         }
                     }
                 }
@@ -527,19 +626,19 @@ fun ArMeasureScreen(
                 Button(
                     onClick = {
                         val result = arResult ?: return@Button
+                        val tonnageLine = currentTonnage?.let {
+                            "⚖️ Peso estimado: ${GeometryUtils.formatTonnage(it, unitSystem)} (${selectedMaterial.displayName})\n"
+                        } ?: ""
                         val text = "📏 Metraje Instante - Volumen AR\n" +
                             "📊 Volumen: ${GeometryUtils.formatVolume(result.volumeCubicMeters, unitSystem)}\n" +
                             "📐 Área base: ${GeometryUtils.formatArea(result.baseAreaSquareMeters, unitSystem)}\n" +
                             "📈 Altura máxima: ${GeometryUtils.formatLength(result.maxHeightMeters, unitSystem)}\n" +
+                            tonnageLine +
+                            "✅ Confianza general: ${result.overallConfidenceLevel.displayName}\n" +
                             "✅ Cobertura superficie: ${result.surfaceCoverageLevel.displayName}\n" +
                             "✅ Cobertura contorno: ${result.toeCoverageLevel.displayName}\n" +
                             "🔬 Método: ARCore Depth + Nube de puntos"
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Medición AR de volumen")
-                            putExtra(Intent.EXTRA_TEXT, text)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Compartir medición"))
+                        ShareUtils.shareMeasurement(context, "Medición AR de volumen", text, capturedPhotoPath)
                     },
                     enabled = arResult != null,
                     modifier = Modifier.weight(1f).height(52.dp).testTag("btn_share_ar"),
@@ -650,6 +749,79 @@ private fun CalibrationPanel(
 
             TextButton(onClick = onExit, modifier = Modifier.fillMaxWidth().testTag("btn_ar_calibration_exit")) {
                 Text("Salir de calibración", color = Color.LightGray)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverallConfidencePill(level: ConfidenceLevel) {
+    val color = when (level) {
+        ConfidenceLevel.HIGH -> AccentEmerald
+        ConfidenceLevel.MEDIUM -> PrimaryOrange
+        ConfidenceLevel.LOW -> AccentRose
+    }
+    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.25f)) {
+        Text(
+            text = "Confianza: ${level.displayName}",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = color,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+    }
+}
+
+/**
+ * Color-banded height heatmap of the scanned pile (a topographic "contour map"
+ * of discrete elevation bands, from blue/low to red/high), built from the same
+ * grid mesh used for the volume integration. Purely a visualization aid shown
+ * right after a scan — not persisted with the measurement.
+ */
+@Composable
+private fun ContourMapPreview(result: ArVolumeResult, modifier: Modifier = Modifier) {
+    val bandColors = listOf(
+        Color(0xFF1D4ED8), // deep blue (lowest)
+        Color(0xFF0EA5E9),
+        Color(0xFF22D3EE),
+        Color(0xFF4ADE80),
+        Color(0xFFFACC15),
+        Color(0xFFF97316),
+        Color(0xFFEF4444)  // red (highest)
+    )
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = Color.Black.copy(alpha = 0.4f)
+    ) {
+        val grid = result.heightGrid
+        if (grid.size < 2 || result.maxHeightMeters <= 0.0) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "Sin datos suficientes para el mapa de contornos",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.LightGray
+                )
+            }
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
+                val rows = grid.size
+                val cols = grid.maxOf { it.size }
+                if (cols < 2) return@Canvas
+                val cellWidth = size.width / cols
+                val cellHeight = size.height / rows
+                val maxHeight = result.maxHeightMeters.toFloat().coerceAtLeast(0.001f)
+                for (row in 0 until rows) {
+                    val rowData = grid[row]
+                    for (col in rowData.indices) {
+                        val ratio = (rowData[col] / maxHeight).coerceIn(0f, 1f)
+                        val bandIndex = (ratio * (bandColors.size - 1)).toInt().coerceIn(0, bandColors.size - 1)
+                        drawRect(
+                            color = bandColors[bandIndex],
+                            topLeft = Offset(col * cellWidth, (rows - 1 - row) * cellHeight),
+                            size = androidx.compose.ui.geometry.Size(cellWidth, cellHeight)
+                        )
+                    }
+                }
             }
         }
     }

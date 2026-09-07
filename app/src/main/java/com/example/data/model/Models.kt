@@ -1,5 +1,7 @@
 package com.example.data.model
 
+import kotlin.math.min
+
 data class Point3D(
     val x: Float,
     val y: Float,
@@ -35,6 +37,26 @@ enum class CalibrationPreset(val displayName: String, val lengthMeters: Double) 
 enum class CalibrationMethod(val displayName: String) {
     REFERENCE_OBJECT("Objeto de referencia"),
     KNOWN_MEASUREMENT("Medida real conocida")
+}
+
+/**
+ * Typical bulk density (metric tons per cubic meter) for common construction
+ * and aggregate materials, used to convert a measured volume into an
+ * estimated weight ("Reporte en toneladas"). Values are general references —
+ * real density varies with moisture, compaction and particle size, so this
+ * is informational only and should be verified against the actual material.
+ */
+enum class MaterialType(val displayName: String, val densityTonPerCubicMeter: Double) {
+    NONE("Sin especificar", 0.0),
+    DRY_SAND("Arena seca", 1.6),
+    WET_SAND("Arena húmeda", 1.9),
+    GRAVEL("Ripio / Grava", 1.75),
+    CRUSHED_STONE("Piedra partida", 1.6),
+    TOPSOIL("Tierra vegetal", 1.5),
+    CLAY("Arcilla", 1.9),
+    ASPHALT_MILLINGS("Fresado asfáltico (RAP)", 1.9),
+    MULCH("Mulch / Corteza", 0.4),
+    COMPOST("Compost", 0.7)
 }
 
 /**
@@ -85,8 +107,16 @@ data class ArVolumeResult(
     val surfaceCoverageConfidence: Float, // ratio of grid cells with a valid depth sample
     val toeCoverageConfidence: Float, // ratio of toe/boundary anchors still well tracked
     val gridResolution: Int,
-    val toePoints: List<WorldPoint>
+    val toePoints: List<WorldPoint>,
+    // Row-major height-above-base (meters) per sampled grid cell, 0f where no
+    // depth was recovered. Transient/in-memory only (not persisted to Room) —
+    // used to render the topographic contour/heatmap preview right after a scan.
+    val heightGrid: List<List<Float>> = emptyList()
 ) {
     val surfaceCoverageLevel: ConfidenceLevel get() = ConfidenceLevel.fromRatio(surfaceCoverageConfidence)
     val toeCoverageLevel: ConfidenceLevel get() = ConfidenceLevel.fromRatio(toeCoverageConfidence)
+
+    /** Combined confidence: the weaker of the two coverage signals, since either alone can hide a bad scan. */
+    val overallConfidence: Float get() = min(surfaceCoverageConfidence, toeCoverageConfidence)
+    val overallConfidenceLevel: ConfidenceLevel get() = ConfidenceLevel.fromRatio(overallConfidence)
 }

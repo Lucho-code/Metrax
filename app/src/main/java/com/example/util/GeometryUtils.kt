@@ -119,4 +119,17 @@ object GeometryUtils {
             }
         }
     }
+
+    /**
+     * Formats an estimated weight in metric tons (t) or US short tons,
+     * for the "Reporte en toneladas" material-density conversion.
+     */
+    fun formatTonnage(metricTons: Double, unitSystem: UnitSystem = UnitSystem.METRIC): String {
+        return if (unitSystem == UnitSystem.METRIC) {
+            String.format("%.2f t", metricTons)
+        } else {
+            val shortTons = metricTons * 1.10231
+            String.format("%.2f ton (US)", shortTons)
+        }
+    }
 }

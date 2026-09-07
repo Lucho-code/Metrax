@@ -54,7 +54,8 @@ fun ArCameraView(
     onToePointsChanged: () -> Unit,
     onVolumeResult: (ArVolumeResult) -> Unit,
     onAvailabilityChanged: (ArAvailability) -> Unit,
-    onRendererReady: (ArVolumeRenderer) -> Unit
+    onRendererReady: (ArVolumeRenderer) -> Unit,
+    onGlSurfaceViewReady: (GLSurfaceView) -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -212,6 +213,7 @@ fun ArCameraView(
                         )
                         setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event) }
                         glSurfaceView = this
+                        onGlSurfaceViewReady(this)
                     }
                 },
                 modifier = Modifier.fillMaxSize()

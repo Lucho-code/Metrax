@@ -9,6 +9,7 @@ import com.example.ar.ArVolumeRenderer
 import com.example.data.db.AppDatabase
 import com.example.data.db.MeasurementEntity
 import com.example.data.model.ArVolumeResult
+import com.example.data.model.MaterialType
 import com.example.data.model.MeasurementMethod
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
@@ -28,8 +29,9 @@ import org.json.JSONObject
  */
 class ArMeasurementViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: MeasurementRepository =
-        MeasurementRepository(AppDatabase.getDatabase(application).measurementDao())
+    private val repository: MeasurementRepository = AppDatabase.getDatabase(application).let { db ->
+        MeasurementRepository(db.measurementDao(), db.pileDao())
+    }
 
     private var renderer: ArVolumeRenderer? = null
 
@@ -48,6 +50,11 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
     private val _showSaveDialog = MutableStateFlow(false)
     val showSaveDialog: StateFlow<Boolean> = _showSaveDialog.asStateFlow()
 
+    // Snapshot of the AR camera view taken right after a successful volume
+    // computation, saved alongside the measurement (like SR Measure's pile photo).
+    private val _capturedPhotoPath = MutableStateFlow<String?>(null)
+    val capturedPhotoPath: StateFlow<String?> = _capturedPhotoPath.asStateFlow()
+
     fun onRendererReady(instance: ArVolumeRenderer) {
         renderer = instance
     }
@@ -62,11 +69,16 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
 
     fun onToePointsChanged() {
         _arResult.value = null
+        _capturedPhotoPath.value = null
     }
 
     fun onVolumeResult(result: ArVolumeResult) {
         _arResult.value = result
         _isComputing.value = false
+    }
+
+    fun setCapturedPhotoPath(path: String?) {
+        _capturedPhotoPath.value = path
     }
 
     fun onTap(x: Float, y: Float) {
@@ -104,7 +116,7 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
         renderer?.postApplyCalibration(trueDistanceMeters)
     }
 
-    fun saveMeasurement(title: String) {
+    fun saveMeasurement(title: String, material: MaterialType, pileId: Long?) {
         val result = _arResult.value ?: return
 
         val pointsJson = JSONArray().apply {
@@ -119,6 +131,8 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
             }
         }.toString()
 
+        val tonnage = if (material == MaterialType.NONE) null else result.volumeCubicMeters * material.densityTonPerCubicMeter
+
         val entity = MeasurementEntity(
             mode = MeasurementMode.VOLUME.name,
             value = result.volumeCubicMeters,
@@ -129,13 +143,18 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
             planeType = PlaneType.FLOOR.name,
             method = MeasurementMethod.AR_POINT_CLOUD.name,
             surfaceCoverageConfidence = result.surfaceCoverageConfidence,
-            toeCoverageConfidence = result.toeCoverageConfidence
+            toeCoverageConfidence = result.toeCoverageConfidence,
+            photoPath = _capturedPhotoPath.value,
+            materialType = if (tonnage != null) material.name else null,
+            tonnage = tonnage,
+            pileId = pileId
         )
 
         viewModelScope.launch {
             repository.insert(entity)
             _showSaveDialog.value = false
             _arResult.value = null
+            _capturedPhotoPath.value = null
             renderer?.postReset()
         }
     }

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Tune
@@ -60,11 +61,13 @@ fun HomeScreen(
     viewModel: MeasurementViewModel,
     onNavigateToMeasure: (MeasurementMode) -> Unit,
     onNavigateToArVolume: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToPiles: () -> Unit
 ) {
     val historyItems by viewModel.historyList.collectAsStateWithLifecycle()
     val selectedPlane by viewModel.selectedPlane.collectAsStateWithLifecycle()
     val calibrationPreset by viewModel.calibrationPreset.collectAsStateWithLifecycle()
+    val pilesList by viewModel.pilesList.collectAsStateWithLifecycle()
     val scrollState = rememberScrollState()
 
     val totalSaved = historyItems.size
@@ -469,6 +472,67 @@ fun HomeScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // Piles / Sitios Summary Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToPiles() }
+                    .testTag("card_piles_summary"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(SecondaryCyan.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Inventory2,
+                                contentDescription = null,
+                                tint = SecondaryCyan
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Acopios / Piles",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (pilesList.isEmpty()) "Sin acopios creados aún"
+                                else "${pilesList.size} acopio(s) — seguimiento en el tiempo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Ir a acopios",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

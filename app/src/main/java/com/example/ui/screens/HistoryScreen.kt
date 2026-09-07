@@ -3,8 +3,9 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
+import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +58,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -64,14 +67,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.db.MeasurementEntity
+import com.example.data.model.ConfidenceLevel
 import com.example.data.model.MeasurementMode
 import com.example.data.model.UnitSystem
 import com.example.ui.theme.AccentEmerald
+import com.example.ui.theme.AccentRose
 import com.example.ui.theme.PrimaryOrange
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.theme.Slate400
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.ShareUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -287,12 +293,7 @@ fun HistoryScreen(
                             },
                             onShare = {
                                 val textToShare = buildSummaryText(item, unitSystem)
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, "Medición: ${item.title}")
-                                    putExtra(Intent.EXTRA_TEXT, textToShare)
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Compartir medición"))
+                                ShareUtils.shareMeasurement(context, "Medición: ${item.title}", textToShare, item.photoPath)
                             }
                         )
                     }
@@ -326,10 +327,21 @@ private fun buildSummaryText(item: MeasurementEntity, unitSystem: UnitSystem): S
         "\n🔬 Método: ARCore Depth + Nube de puntos\n📡 Cobertura de superficie: $coverage"
     } else ""
 
+    val tonnageInfo = item.tonnage?.let {
+        "\n⚖️ Peso estimado: ${GeometryUtils.formatTonnage(it, unitSystem)} (${item.materialType ?: ""})"
+    } ?: ""
+
     return "📏 Metraje Instante - $modeLabel\n" +
             "📌 Título: ${item.title}\n" +
-            "📊 Resultado: $formattedVal$extraInfo\n" +
+            "📊 Resultado: $formattedVal$extraInfo$tonnageInfo\n" +
             "🌐 Superficie: ${item.planeType}$arInfo"
+}
+
+/** Combined confidence for a saved AR measurement: the weaker of its two coverage signals. */
+private fun overallConfidenceLevel(item: MeasurementEntity): ConfidenceLevel? {
+    val surface = item.surfaceCoverageConfidence ?: return null
+    val toe = item.toeCoverageConfidence ?: surface
+    return ConfidenceLevel.fromRatio(minOf(surface, toe))
 }
 
 @Composable
@@ -376,23 +388,37 @@ private fun MeasurementCardItem(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = when {
-                            isDistance -> Icons.Default.Straighten
-                            isArea -> Icons.Default.CropSquare
-                            else -> Icons.Default.ViewInAr
-                        },
+                val thumbnailBitmap = remember(item.photoPath) {
+                    item.photoPath?.let { path -> BitmapFactory.decodeFile(path)?.asImageBitmap() }
+                }
+                if (thumbnailBitmap != null) {
+                    Image(
+                        bitmap = thumbnailBitmap,
                         contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(24.dp)
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(12.dp))
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(accentColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                isDistance -> Icons.Default.Straighten
+                                isArea -> Icons.Default.CropSquare
+                                else -> Icons.Default.ViewInAr
+                            },
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
 
                 Column {
@@ -443,6 +469,15 @@ private fun MeasurementCardItem(
                         )
                     }
 
+                    item.tonnage?.let { tonnage ->
+                        Text(
+                            text = "≈ ${GeometryUtils.formatTonnage(tonnage, unitSystem)}" +
+                                (item.materialType?.let { " · $it" } ?: ""),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = PrimaryOrange
+                        )
+                    }
+
                     if (item.method == "AR_POINT_CLOUD") {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -459,15 +494,20 @@ private fun MeasurementCardItem(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
-                            item.surfaceCoverageConfidence?.let { confidence ->
+                            overallConfidenceLevel(item)?.let { level ->
+                                val levelColor = when (level) {
+                                    ConfidenceLevel.HIGH -> AccentEmerald
+                                    ConfidenceLevel.MEDIUM -> PrimaryOrange
+                                    ConfidenceLevel.LOW -> AccentRose
+                                }
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                    color = levelColor.copy(alpha = 0.18f)
                                 ) {
                                     Text(
-                                        text = "Cobertura ${(confidence * 100).toInt()}%",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        text = "Confianza: ${level.displayName}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = levelColor,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }

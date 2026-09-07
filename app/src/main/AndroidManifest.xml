@@ -23,6 +23,19 @@
              manual tap-to-measure modes keep working everywhere. -->
         <meta-data android:name="com.google.ar.core" android:value="optional" />
 
+        <!-- Exposes saved measurement photos (app-internal storage) as content://
+             URIs so they can be attached to a share Intent without granting the
+             receiving app raw file:// access (FileUriExposedException on API 24+). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

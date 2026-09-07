@@ -72,19 +72,23 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.camera.view.PreviewView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.CalibrationMethod
 import com.example.data.model.CalibrationPreset
+import com.example.data.model.MaterialType
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
 import com.example.ui.components.CameraManager
+import com.example.ui.components.MaterialSelectorRow
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.PrimaryOrange
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.PhotoStorage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,14 +111,20 @@ fun MeasureScreen(
     val calibrationTapPoints by viewModel.calibrationTapPoints.collectAsStateWithLifecycle()
     val calibrationTargetLengthMeters by viewModel.calibrationTargetLengthMeters.collectAsStateWithLifecycle()
     val showSaveDialog by viewModel.showSaveDialog.collectAsStateWithLifecycle()
+    val selectedMaterial by viewModel.selectedMaterial.collectAsStateWithLifecycle()
+    val activePileId by viewModel.activePileId.collectAsStateWithLifecycle()
+    val pilesList by viewModel.pilesList.collectAsStateWithLifecycle()
 
     var saveTitleInput by remember { mutableStateOf("") }
     var heightSliderValue by remember(heightMeters) { mutableFloatStateOf(heightMeters.toFloat()) }
     var customRefInput by remember { mutableStateOf("1.00") }
     var knownLengthInput by remember { mutableStateOf("1.00") }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
 
     val calculatedValue = viewModel.calculateCurrentValue()
     val currentArea = viewModel.calculateCurrentArea()
+    val currentTonnage = viewModel.calculateCurrentTonnage()
+    val activePileName = pilesList.firstOrNull { it.id == activePileId }?.name
 
     // 1. Scale Calibration Dialog
     if (showCalibrationDialog) {
@@ -310,11 +320,50 @@ fun MeasureScreen(
                             .fillMaxWidth()
                             .testTag("input_save_title")
                     )
+
+                    if (mode == MeasurementMode.VOLUME) {
+                        Text(
+                            text = "Material (para reporte en toneladas)",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        MaterialSelectorRow(
+                            selected = selectedMaterial,
+                            onSelect = { viewModel.setMaterial(it) }
+                        )
+                        if (currentTonnage != null) {
+                            Text(
+                                text = "≈ " + GeometryUtils.formatTonnage(currentTonnage, unitSystem),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = AccentEmerald
+                            )
+                        }
+                    }
+
+                    if (activePileName != null) {
+                        Surface(shape = RoundedCornerShape(10.dp), color = SecondaryCyan.copy(alpha = 0.15f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth().padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "📦 Se asignará al acopio: $activePileName",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                TextButton(onClick = { viewModel.setActivePile(null) }) {
+                                    Text("Quitar", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
+                        val bitmap = try { previewViewRef?.bitmap } catch (_: Exception) { null }
+                        val photoPath = bitmap?.let { PhotoStorage.savePhoto(context, it) }
+                        viewModel.setCapturedPhotoPath(photoPath)
                         viewModel.saveMeasurement(saveTitleInput)
                         saveTitleInput = ""
                         Toast.makeText(context, "Medición guardada en el historial", Toast.LENGTH_SHORT).show()
@@ -347,6 +396,7 @@ fun MeasureScreen(
         // 1. Live Camera Feed Layer with Overlay Content
         CameraManager(
             modifier = Modifier.fillMaxSize(),
+            onPreviewViewReady = { previewViewRef = it },
             overlayContent = {
                 // 2. Interactive Measuring Canvas Overlay
                 InteractiveMeasuringCanvas(
@@ -693,6 +743,22 @@ fun MeasureScreen(
                                 color = Color.LightGray,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            MaterialSelectorRow(
+                                selected = selectedMaterial,
+                                onSelect = { viewModel.setMaterial(it) },
+                                unselectedContainerColor = Color.White.copy(alpha = 0.1f),
+                                unselectedContentColor = Color.LightGray
+                            )
+                            if (currentTonnage != null) {
+                                Text(
+                                    text = "≈ " + GeometryUtils.formatTonnage(currentTonnage, unitSystem),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = AccentEmerald,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
                         }
                     }
                 }

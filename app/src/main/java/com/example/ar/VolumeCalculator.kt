@@ -124,8 +124,21 @@ object VolumeCalculator {
             surfaceCoverageConfidence = surfaceCoverage.coerceIn(0f, 1f),
             toeCoverageConfidence = toeTrackingRatio.coerceIn(0f, 1f),
             gridResolution = gridResolution,
-            toePoints = toePoints
+            toePoints = toePoints,
+            heightGrid = buildHeightGrid(mesh, baseY)
         )
+    }
+
+    /**
+     * Row-major grid of height-above-base (meters, clamped to >= 0) for every
+     * sampled point in [mesh], null/missing samples mapped to 0f. Used only to
+     * render the topographic contour/heatmap preview — not part of the volume
+     * math itself (that stays in [integrateGridVolume]).
+     */
+    private fun buildHeightGrid(mesh: List<List<WorldPoint?>>, baseElevationY: Float): List<List<Float>> {
+        return mesh.map { row ->
+            row.map { point -> if (point == null) 0f else max(0f, point.y - baseElevationY) }
+        }
     }
 
     /**
