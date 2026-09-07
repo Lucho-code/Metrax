@@ -128,6 +128,21 @@ object VolumeCalculator {
         )
     }
 
+    /**
+     * Applies a uniform length-correction factor (from calibrating against a known
+     * real-world distance) to a finished result. A systematic ARCore scale bias
+     * affects every tracked distance by the same ratio, so area scales by
+     * factor² and volume by factor³; [factor] == 1.0 is a no-op.
+     */
+    fun applyLengthCorrection(result: ArVolumeResult, factor: Double): ArVolumeResult {
+        if (factor <= 0.0 || factor == 1.0) return result
+        return result.copy(
+            volumeCubicMeters = result.volumeCubicMeters * factor * factor * factor,
+            baseAreaSquareMeters = result.baseAreaSquareMeters * factor * factor,
+            maxHeightMeters = result.maxHeightMeters * factor
+        )
+    }
+
     /** Ray-casting point-in-polygon test, generic over any 2D (a,b) coordinate pair. */
     fun isInsidePolygon(x: Float, y: Float, polygon: List<Pair<Float, Float>>): Boolean {
         if (polygon.size < 3) return false
@@ -142,6 +157,26 @@ object VolumeCalculator {
             j = i
         }
         return inside
+    }
+
+    /** Straight-line 3D distance between two world points, in meters. */
+    fun distance3D(a: WorldPoint, b: WorldPoint): Double {
+        val dx = (b.x - a.x).toDouble()
+        val dy = (b.y - a.y).toDouble()
+        val dz = (b.z - a.z).toDouble()
+        return kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+    }
+
+    /**
+     * Correction factor to apply so that a measured distance matches the known
+     * real one, e.g. from tapping the two ends of a tape measure laid on the
+     * ground. Returns null if the inputs can't produce a sane factor.
+     */
+    fun lengthCorrectionFactor(measuredDistance: Double, trueDistance: Double): Double? {
+        if (measuredDistance <= 0.0 || trueDistance <= 0.0) return null
+        val factor = trueDistance / measuredDistance
+        if (factor.isNaN() || factor.isInfinite()) return null
+        return factor
     }
 
     /** Clamps a requested grid resolution to a sane, performance-safe range. */

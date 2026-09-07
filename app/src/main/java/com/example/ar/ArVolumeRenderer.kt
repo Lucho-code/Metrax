@@ -56,6 +56,13 @@ class ArVolumeRenderer(
     private val pendingCommands = ArrayDeque<(Frame) -> Unit>()
 
     private val toeAnchors = mutableListOf<com.google.ar.core.Anchor>()
+    private val calibrationAnchors = mutableListOf<com.google.ar.core.Anchor>()
+
+    @Volatile
+    private var calibrationModeActive = false
+
+    @Volatile
+    private var lengthCorrectionFactor = 1.0
 
     private val viewMatrix = FloatArray(16)
     private val projMatrix = FloatArray(16)
@@ -78,6 +85,18 @@ class ArVolumeRenderer(
     fun postComputeVolume(gridResolution: Int) {
         val clamped = VolumeCalculator.clampGridResolution(gridResolution)
         synchronized(commandLock) { pendingCommands.addLast { frame -> handleComputeVolume(frame, clamped) } }
+    }
+
+    fun postSetCalibrationMode(active: Boolean) {
+        synchronized(commandLock) { pendingCommands.addLast { handleSetCalibrationMode(active) } }
+    }
+
+    fun postResetCalibrationPoints() {
+        synchronized(commandLock) { pendingCommands.addLast { handleResetCalibrationPoints() } }
+    }
+
+    fun postApplyCalibration(trueDistanceMeters: Double) {
+        synchronized(commandLock) { pendingCommands.addLast { handleApplyCalibration(trueDistanceMeters) } }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -149,13 +168,29 @@ class ArVolumeRenderer(
                 else -> ArTrackingStatus.LOST
             }
 
+            val uiCalibrationPoints = calibrationAnchors.mapNotNull { anchor ->
+                if (anchor.trackingState != TrackingState.TRACKING) return@mapNotNull null
+                projectToScreen(anchor.pose.tx(), anchor.pose.ty(), anchor.pose.tz())
+                    ?.let { (sx, sy) -> Offset(sx, sy) }
+            }
+            val calibrationDistance = if (calibrationAnchors.size == 2) {
+                VolumeCalculator.distance3D(
+                    calibrationAnchors[0].pose.toWorldPoint(),
+                    calibrationAnchors[1].pose.toWorldPoint()
+                )
+            } else null
+
             onUiState(
                 ArFrameUiState(
                     trackingStatus = status,
                     planeDetected = planeDetected,
                     pointCloudScreenPoints = uiPointCloud,
                     toePointsScreen = uiToePoints,
-                    statusMessage = pendingMessage ?: defaultMessage(status, planeDetected, toeAnchors.size)
+                    statusMessage = pendingMessage ?: defaultMessage(status, planeDetected, toeAnchors.size, calibrationModeActive, calibrationAnchors.size),
+                    calibrationModeActive = calibrationModeActive,
+                    calibrationPointsScreen = uiCalibrationPoints,
+                    calibrationMeasuredDistance = calibrationDistance,
+                    lengthCorrectionFactor = lengthCorrectionFactor
                 )
             )
             pendingMessage = null
@@ -166,8 +201,16 @@ class ArVolumeRenderer(
         }
     }
 
-    private fun defaultMessage(status: ArTrackingStatus, planeDetected: Boolean, toeCount: Int): String = when {
+    private fun defaultMessage(
+        status: ArTrackingStatus,
+        planeDetected: Boolean,
+        toeCount: Int,
+        calibrating: Boolean,
+        calibrationCount: Int
+    ): String = when {
         status != ArTrackingStatus.TRACKING -> "Moové el celular lentamente para que el sistema detecte el entorno."
+        calibrating && calibrationCount < 2 -> "Modo calibración: tocá los 2 extremos de un objeto de longitud conocida."
+        calibrating -> "Ingresá la medida real del objeto y presioná \"Aplicar\"."
         !planeDetected -> "Buscando el plano del suelo… apuntá hacia la base del material."
         toeCount < 3 -> "Tocá el contorno de la base del material (mínimo 3 puntos), rodeándolo."
         else -> "Contorno listo. Alejate para ver todo el material y presioná \"Calcular volumen\"."
@@ -190,6 +233,16 @@ class ArVolumeRenderer(
             pendingMessage = "No se detectó superficie en ese punto. Probá tocar sobre el contorno visible del material."
             return
         }
+
+        if (calibrationModeActive) {
+            if (calibrationAnchors.size >= 2) {
+                calibrationAnchors.forEach { it.detach() }
+                calibrationAnchors.clear()
+            }
+            calibrationAnchors.add(hit.createAnchor())
+            return
+        }
+
         toeAnchors.add(hit.createAnchor())
         onToePointsChanged()
     }
@@ -207,6 +260,44 @@ class ArVolumeRenderer(
             toeAnchors.clear()
             onToePointsChanged()
         }
+    }
+
+    private fun handleSetCalibrationMode(active: Boolean) {
+        calibrationModeActive = active
+        if (active) {
+            calibrationAnchors.forEach { it.detach() }
+            calibrationAnchors.clear()
+        }
+    }
+
+    private fun handleResetCalibrationPoints() {
+        calibrationAnchors.forEach { it.detach() }
+        calibrationAnchors.clear()
+    }
+
+    private fun handleApplyCalibration(trueDistanceMeters: Double) {
+        if (calibrationAnchors.size != 2) {
+            pendingMessage = "Tocá los 2 extremos del objeto de longitud conocida antes de aplicar la calibración."
+            return
+        }
+        val measured = VolumeCalculator.distance3D(
+            calibrationAnchors[0].pose.toWorldPoint(),
+            calibrationAnchors[1].pose.toWorldPoint()
+        )
+        val factor = VolumeCalculator.lengthCorrectionFactor(measured, trueDistanceMeters)
+        if (factor == null) {
+            pendingMessage = "No se pudo calcular la calibración. Probá marcar los puntos de nuevo."
+            return
+        }
+        if (factor < 0.5 || factor > 2.0) {
+            pendingMessage = "La corrección calculada es demasiado grande (${"%.2f".format(factor)}×). Revisá que tocaste los 2 puntos correctos."
+            return
+        }
+        lengthCorrectionFactor = factor
+        calibrationAnchors.forEach { it.detach() }
+        calibrationAnchors.clear()
+        pendingMessage = "Calibración aplicada: corrección ${"%.3f".format(factor)}×."
+        onToePointsChanged() // invalidate any result computed under the old correction factor
     }
 
     private fun handleComputeVolume(frame: Frame, gridResolution: Int) {
@@ -251,12 +342,12 @@ class ArVolumeRenderer(
         }
 
         val trackingRatio = toeAnchors.count { it.trackingState == TrackingState.TRACKING }.toFloat() / toeAnchors.size
-        val result = VolumeCalculator.buildResult(toeWorldPoints, mesh, trackingRatio, gridResolution)
-        if (result == null) {
+        val rawResult = VolumeCalculator.buildResult(toeWorldPoints, mesh, trackingRatio, gridResolution)
+        if (rawResult == null) {
             pendingMessage = "No se pudo reconstruir suficiente superficie. Probá acercarte o mejorar la iluminación."
             return
         }
-        onVolumeResult(result)
+        onVolumeResult(VolumeCalculator.applyLengthCorrection(rawResult, lengthCorrectionFactor))
     }
 
     private fun firstValidHit(hits: List<HitResult>): HitResult? {

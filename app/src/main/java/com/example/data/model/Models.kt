@@ -31,6 +31,12 @@ enum class CalibrationPreset(val displayName: String, val lengthMeters: Double) 
     CUSTOM("Medida personalizada", 0.0)
 }
 
+/** How the active [scaleFactor] correction was (or should be) obtained. */
+enum class CalibrationMethod(val displayName: String) {
+    REFERENCE_OBJECT("Objeto de referencia"),
+    KNOWN_MEASUREMENT("Verificación con medida real")
+}
+
 /**
  * Method used to obtain a saved measurement.
  */

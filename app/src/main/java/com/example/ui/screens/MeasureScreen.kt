@@ -73,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.CalibrationMethod
 import com.example.data.model.CalibrationPreset
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
@@ -99,12 +100,15 @@ fun MeasureScreen(
     val heightMeters by viewModel.heightMeters.collectAsStateWithLifecycle()
     val scaleFactor by viewModel.scaleFactor.collectAsStateWithLifecycle()
     val calibrationPreset by viewModel.calibrationPreset.collectAsStateWithLifecycle()
+    val calibrationMethod by viewModel.calibrationMethod.collectAsStateWithLifecycle()
+    val lastCalibrationCorrection by viewModel.lastCalibrationCorrection.collectAsStateWithLifecycle()
     val showCalibrationDialog by viewModel.showCalibrationDialog.collectAsStateWithLifecycle()
     val showSaveDialog by viewModel.showSaveDialog.collectAsStateWithLifecycle()
 
     var saveTitleInput by remember { mutableStateOf("") }
     var heightSliderValue by remember(heightMeters) { mutableFloatStateOf(heightMeters.toFloat()) }
     var customRefInput by remember { mutableStateOf("1.00") }
+    var knownValueInput by remember { mutableStateOf("") }
 
     val calculatedValue = viewModel.calculateCurrentValue()
     val currentArea = viewModel.calculateCurrentArea()
@@ -120,65 +124,169 @@ fun MeasureScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Seleccioná un objeto de referencia conocido colocado en la toma, o ingresá su dimensión manual:",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-
-                    CalibrationPreset.values().forEach { preset ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (preset == calibrationPreset) PrimaryOrange.copy(alpha = 0.2f)
-                                    else Color.DarkGray.copy(alpha = 0.2f)
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Method selector: reference object vs. verify against a known measurement
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.DarkGray.copy(alpha = 0.2f))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        CalibrationMethod.values().forEach { method ->
+                            val active = method == calibrationMethod
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) PrimaryOrange else Color.Transparent)
+                                    .clickable { viewModel.setCalibrationMethod(method) }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = method.displayName,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                        textAlign = TextAlign.Center
+                                    ),
+                                    color = if (active) Color.White else Color.LightGray
                                 )
-                                .clickable { viewModel.setCalibrationPreset(preset) }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = preset.displayName,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = if (preset == calibrationPreset) FontWeight.Bold else FontWeight.Normal
-                                ),
-                                color = if (preset == calibrationPreset) PrimaryOrange else Color.White
+                            }
+                        }
+                    }
+
+                    if (calibrationMethod == CalibrationMethod.REFERENCE_OBJECT) {
+                        Text(
+                            text = "Seleccioná un objeto de referencia conocido colocado en la toma, o ingresá su dimensión manual:",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+
+                        CalibrationPreset.values().forEach { preset ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (preset == calibrationPreset) PrimaryOrange.copy(alpha = 0.2f)
+                                        else Color.DarkGray.copy(alpha = 0.2f)
+                                    )
+                                    .clickable { viewModel.setCalibrationPreset(preset) }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = preset.displayName,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = if (preset == calibrationPreset) FontWeight.Bold else FontWeight.Normal
+                                    ),
+                                    color = if (preset == calibrationPreset) PrimaryOrange else Color.White
+                                )
+                            }
+                        }
+
+                        if (calibrationPreset == CalibrationPreset.CUSTOM) {
+                            OutlinedTextField(
+                                value = customRefInput,
+                                onValueChange = {
+                                    customRefInput = it
+                                    it.toDoubleOrNull()?.let { m -> viewModel.setCustomRefMeters(m) }
+                                },
+                                label = { Text("Longitud de referencia en metros (ej. 1.50)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
-                    }
 
-                    if (calibrationPreset == CalibrationPreset.CUSTOM) {
-                        OutlinedTextField(
-                            value = customRefInput,
-                            onValueChange = {
-                                customRefInput = it
-                                it.toDoubleOrNull()?.let { m -> viewModel.setCustomRefMeters(m) }
-                            },
-                            label = { Text("Longitud de referencia en metros (ej. 1.50)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    if (points.size >= 2) {
-                        Button(
-                            onClick = {
-                                viewModel.calibrateScaleFromPoints()
-                                Toast.makeText(context, "Escala calibrada con éxito", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Calibrar usando los 2 primeros puntos", color = Color.White)
+                        if (points.size >= 2) {
+                            Button(
+                                onClick = {
+                                    viewModel.calibrateScaleFromPoints()
+                                    Toast.makeText(context, "Escala calibrada con éxito", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Calibrar usando los 2 primeros puntos", color = Color.White)
+                            }
+                        } else {
+                            Text(
+                                text = "💡 Colocá al menos 2 puntos sobre el objeto de referencia en la cámara para aplicar la calibración.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.LightGray
+                            )
                         }
                     } else {
+                        val unitLabel = when (mode) {
+                            MeasurementMode.DISTANCE -> "metros"
+                            MeasurementMode.AREA -> "metros cuadrados (m²)"
+                            MeasurementMode.VOLUME -> "metros cúbicos (m³)"
+                        }
+                        val rawValue = viewModel.rawValueForCalibration()
+
                         Text(
-                            text = "💡 Colocá al menos 2 puntos sobre el objeto de referencia en la cámara para aplicar la calibración.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.LightGray
+                            text = "Medí algo cuya medida real ya conocés (ej. una pared, un ambiente) con la herramienta \"${mode.label}\", y decime cuánto mide en realidad. Voy a corregir la escala en base a la diferencia.",
+                            style = MaterialTheme.typography.bodySmall
                         )
+
+                        if (rawValue != null) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = SecondaryCyan.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "Medición actual de la app: " + when (mode) {
+                                        MeasurementMode.DISTANCE -> GeometryUtils.formatLength(rawValue, unitSystem)
+                                        MeasurementMode.AREA -> GeometryUtils.formatArea(rawValue, unitSystem)
+                                        MeasurementMode.VOLUME -> GeometryUtils.formatVolume(rawValue, unitSystem)
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = SecondaryCyan,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+
+                            OutlinedTextField(
+                                value = knownValueInput,
+                                onValueChange = { knownValueInput = it },
+                                label = { Text("Medida REAL en $unitLabel (ej. 3.00)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Button(
+                                onClick = {
+                                    val trueValue = knownValueInput.replace(",", ".").toDoubleOrNull()
+                                    if (trueValue == null || trueValue <= 0.0) {
+                                        Toast.makeText(context, "Ingresá una medida real válida", Toast.LENGTH_SHORT).show()
+                                    } else if (viewModel.calibrateFromKnownRealValue(trueValue)) {
+                                        Toast.makeText(context, "Calibración aplicada", Toast.LENGTH_SHORT).show()
+                                        knownValueInput = ""
+                                    } else {
+                                        Toast.makeText(context, "No se pudo calibrar con estos datos", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Aplicar corrección", color = Color.White)
+                            }
+                        } else {
+                            Text(
+                                text = "💡 Primero medí algo con la herramienta de ${mode.label.lowercase()} (mínimo ${mode.minPoints} puntos) para poder verificarlo contra su medida real.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.LightGray
+                            )
+                        }
+
+                        lastCalibrationCorrection?.let { correction ->
+                            Text(
+                                text = "Última corrección aplicada: ×${String.format("%.3f", correction)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AccentEmerald
+                            )
+                        }
                     }
                 }
             },

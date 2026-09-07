@@ -19,7 +19,11 @@ data class ArFrameUiState(
     val planeDetected: Boolean = false,
     val pointCloudScreenPoints: List<Offset> = emptyList(),
     val toePointsScreen: List<Offset> = emptyList(),
-    val statusMessage: String = "Iniciando cámara AR…"
+    val statusMessage: String = "Iniciando cámara AR…",
+    val calibrationModeActive: Boolean = false,
+    val calibrationPointsScreen: List<Offset> = emptyList(),
+    val calibrationMeasuredDistance: Double? = null,
+    val lengthCorrectionFactor: Double = 1.0
 )
 
 /** Terminal/blocking states for the AR camera host (permission, install, hardware support). */

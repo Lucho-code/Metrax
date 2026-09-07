@@ -92,6 +92,18 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
         _showSaveDialog.value = show
     }
 
+    fun setCalibrationMode(active: Boolean) {
+        renderer?.postSetCalibrationMode(active)
+    }
+
+    fun resetCalibrationPoints() {
+        renderer?.postResetCalibrationPoints()
+    }
+
+    fun applyCalibration(trueDistanceMeters: Double) {
+        renderer?.postApplyCalibration(trueDistanceMeters)
+    }
+
     fun saveMeasurement(title: String) {
         val result = _arResult.value ?: return
 
@@ -111,7 +123,7 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
             mode = MeasurementMode.VOLUME.name,
             value = result.volumeCubicMeters,
             heightValue = result.maxHeightMeters,
-            scaleFactor = 1.0,
+            scaleFactor = _uiState.value.lengthCorrectionFactor,
             title = title.ifBlank { "Volumen AR (nube de puntos)" },
             pointsJson = pointsJson,
             planeType = PlaneType.FLOOR.name,

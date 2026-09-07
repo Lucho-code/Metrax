@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -101,8 +103,10 @@ fun ArMeasureScreen(
 
     var saveTitleInput by remember { mutableStateOf("") }
     var gridQuality by remember { mutableStateOf(GridQuality.MEDIUM) }
+    var calibrationDistanceInput by remember { mutableStateOf("") }
 
     val toeCount = uiState.toePointsScreen.size
+    val calibrationActive = uiState.calibrationModeActive
 
     if (showSaveDialog && arResult != null) {
         val result = arResult!!
@@ -197,6 +201,21 @@ fun ArMeasureScreen(
                 drawCircle(color = AccentEmerald, radius = 10f, center = point)
                 drawCircle(color = Color.White, radius = 3f, center = point)
             }
+
+            val calibrationPoints = uiState.calibrationPointsScreen
+            if (calibrationPoints.size == 2) {
+                drawLine(
+                    color = PrimaryOrange,
+                    start = calibrationPoints[0],
+                    end = calibrationPoints[1],
+                    strokeWidth = 5f
+                )
+            }
+            calibrationPoints.forEach { point ->
+                drawCircle(color = PrimaryOrange.copy(alpha = 0.35f), radius = 20f, center = point)
+                drawCircle(color = PrimaryOrange, radius = 10f, center = point)
+                drawCircle(color = Color.White, radius = 3f, center = point)
+            }
         }
 
         // Top bar
@@ -231,18 +250,31 @@ fun ArMeasureScreen(
                 )
             }
 
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .testTag("btn_toggle_unit_ar")
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = if (unitSystem == UnitSystem.METRIC) "m³" else "yd³",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = SecondaryCyan
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconButton(
+                    onClick = { arViewModel.setCalibrationMode(!calibrationActive) },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(if (calibrationActive) PrimaryOrange else Color.Black.copy(alpha = 0.65f))
+                        .testTag("btn_toggle_calibration_ar")
+                ) {
+                    Icon(Icons.Default.Tune, contentDescription = "Calibrar AR", tint = Color.White)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .testTag("btn_toggle_unit_ar")
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = if (unitSystem == UnitSystem.METRIC) "m³" else "yd³",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = SecondaryCyan
+                    )
+                }
             }
         }
 
@@ -281,6 +313,25 @@ fun ArMeasureScreen(
             }
         }
 
+        // Active calibration correction indicator (only when not mid-calibration, to avoid
+        // duplicating the live readout already shown in the calibration panel below).
+        if (!calibrationActive && uiState.lengthCorrectionFactor != 1.0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 140.dp, start = 24.dp, end = 24.dp)
+            ) {
+                Surface(shape = RoundedCornerShape(10.dp), color = PrimaryOrange.copy(alpha = 0.85f)) {
+                    Text(
+                        text = "Calibración activa: ×${"%.3f".format(uiState.lengthCorrectionFactor)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
         // Availability overlays (permission / install / unsupported / checking)
         when (val currentAvailability = availability) {
             is ArAvailability.Checking -> AvailabilityOverlay(
@@ -312,6 +363,27 @@ fun ArMeasureScreen(
                 .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (calibrationActive) {
+                CalibrationPanel(
+                    measuredDistance = uiState.calibrationMeasuredDistance,
+                    unitSystem = unitSystem,
+                    distanceInput = calibrationDistanceInput,
+                    onDistanceInputChange = { calibrationDistanceInput = it },
+                    onReset = { arViewModel.resetCalibrationPoints() },
+                    onApply = {
+                        val trueValue = calibrationDistanceInput.replace(",", ".").toDoubleOrNull()
+                        if (trueValue == null || trueValue <= 0.0) {
+                            Toast.makeText(context, "Ingresá una medida real válida", Toast.LENGTH_SHORT).show()
+                        } else {
+                            arViewModel.applyCalibration(trueValue)
+                            calibrationDistanceInput = ""
+                        }
+                    },
+                    onExit = { arViewModel.setCalibrationMode(false) }
+                )
+                return@Column
+            }
+
             arResult?.let { result ->
                 Card(
                     modifier = Modifier
@@ -479,6 +551,99 @@ fun ArMeasureScreen(
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalibrationPanel(
+    measuredDistance: Double?,
+    unitSystem: UnitSystem,
+    distanceInput: String,
+    onDistanceInputChange: (String) -> Unit,
+    onReset: () -> Unit,
+    onApply: () -> Unit,
+    onExit: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("card_ar_calibration"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.9f)),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, PrimaryOrange)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Straighten, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(18.dp))
+                Text(
+                    text = "Calibración AR",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+            }
+            Text(
+                text = "Tocá los 2 extremos de un objeto de longitud conocida (ej. una cinta métrica extendida en el piso) y decime cuánto mide en realidad.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.LightGray
+            )
+
+            if (measuredDistance != null) {
+                Surface(shape = RoundedCornerShape(10.dp), color = SecondaryCyan.copy(alpha = 0.15f)) {
+                    Text(
+                        text = "Medición actual de la app: " + GeometryUtils.formatLength(measuredDistance, unitSystem),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SecondaryCyan,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = distanceInput,
+                    onValueChange = onDistanceInputChange,
+                    label = { Text("Medida REAL en metros (ej. 1.00)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("input_ar_calibration_distance")
+                )
+            } else {
+                Text(
+                    text = "💡 Tocá el primer punto y luego el segundo sobre el objeto de referencia.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.LightGray
+                )
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onReset,
+                    modifier = Modifier.weight(1f).testTag("btn_ar_calibration_reset"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.18f))
+                ) {
+                    Text("Reiniciar puntos", color = Color.White)
+                }
+                Button(
+                    onClick = onApply,
+                    enabled = measuredDistance != null,
+                    modifier = Modifier.weight(1f).testTag("btn_ar_calibration_apply"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PrimaryOrange,
+                        disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Text("Aplicar", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            TextButton(onClick = onExit, modifier = Modifier.fillMaxWidth().testTag("btn_ar_calibration_exit")) {
+                Text("Salir de calibración", color = Color.LightGray)
             }
         }
     }

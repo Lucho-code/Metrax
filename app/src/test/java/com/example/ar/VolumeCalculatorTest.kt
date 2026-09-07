@@ -124,4 +124,53 @@ class VolumeCalculatorTest {
         assertEquals(40, VolumeCalculator.clampGridResolution(1000))
         assertEquals(20, VolumeCalculator.clampGridResolution(20))
     }
+
+    @Test
+    fun distance3D_computesEuclideanDistance() {
+        val a = WorldPoint(0f, 0f, 0f)
+        val b = WorldPoint(3f, 4f, 0f)
+        assertEquals(5.0, VolumeCalculator.distance3D(a, b), 1e-6)
+    }
+
+    @Test
+    fun lengthCorrectionFactor_computesRatioOfTrueToMeasured() {
+        assertEquals(2.0, VolumeCalculator.lengthCorrectionFactor(1.0, 2.0)!!, 1e-6)
+        assertEquals(0.5, VolumeCalculator.lengthCorrectionFactor(2.0, 1.0)!!, 1e-6)
+        assertNull(VolumeCalculator.lengthCorrectionFactor(0.0, 1.0))
+        assertNull(VolumeCalculator.lengthCorrectionFactor(1.0, 0.0))
+    }
+
+    @Test
+    fun applyLengthCorrection_scalesAreaByFactorSquaredAndVolumeByFactorCubed() {
+        val result = com.example.data.model.ArVolumeResult(
+            volumeCubicMeters = 10.0,
+            baseAreaSquareMeters = 5.0,
+            maxHeightMeters = 2.0,
+            surfaceCoverageConfidence = 1.0f,
+            toeCoverageConfidence = 1.0f,
+            gridResolution = 20,
+            toePoints = emptyList()
+        )
+
+        val corrected = VolumeCalculator.applyLengthCorrection(result, 2.0)
+
+        assertEquals(80.0, corrected.volumeCubicMeters, 1e-6) // 10 * 2^3
+        assertEquals(20.0, corrected.baseAreaSquareMeters, 1e-6) // 5 * 2^2
+        assertEquals(4.0, corrected.maxHeightMeters, 1e-6) // 2 * 2
+    }
+
+    @Test
+    fun applyLengthCorrection_isNoOpForFactorOfOne() {
+        val result = com.example.data.model.ArVolumeResult(
+            volumeCubicMeters = 10.0,
+            baseAreaSquareMeters = 5.0,
+            maxHeightMeters = 2.0,
+            surfaceCoverageConfidence = 1.0f,
+            toeCoverageConfidence = 1.0f,
+            gridResolution = 20,
+            toePoints = emptyList()
+        )
+
+        assertEquals(result, VolumeCalculator.applyLengthCorrection(result, 1.0))
+    }
 }

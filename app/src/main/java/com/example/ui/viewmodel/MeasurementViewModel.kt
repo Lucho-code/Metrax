@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
 import com.example.data.db.MeasurementEntity
+import com.example.data.model.CalibrationMethod
 import com.example.data.model.CalibrationPreset
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.sqrt
 
 class MeasurementViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -59,6 +61,14 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _showCalibrationDialog = MutableStateFlow(false)
     val showCalibrationDialog: StateFlow<Boolean> = _showCalibrationDialog.asStateFlow()
+
+    // "Verify against a known real measurement" calibration: measure something whose
+    // real-world value you already know, then correct the scale factor from the difference.
+    private val _calibrationMethod = MutableStateFlow(CalibrationMethod.REFERENCE_OBJECT)
+    val calibrationMethod: StateFlow<CalibrationMethod> = _calibrationMethod.asStateFlow()
+
+    private val _lastCalibrationCorrection = MutableStateFlow<Double?>(null)
+    val lastCalibrationCorrection: StateFlow<Double?> = _lastCalibrationCorrection.asStateFlow()
 
     private val _trackingReady = MutableStateFlow(true)
     val trackingReady: StateFlow<Boolean> = _trackingReady.asStateFlow()
@@ -131,6 +141,83 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setShowCalibrationDialog(show: Boolean) {
         _showCalibrationDialog.value = show
+        if (show) _lastCalibrationCorrection.value = null
+    }
+
+    fun setCalibrationMethod(method: CalibrationMethod) {
+        _calibrationMethod.value = method
+    }
+
+    /**
+     * Raw (pre-scale-correction) value for whatever is currently on screen, in the
+     * unit the active [mode] expects the user's known real value to be in: meters
+     * for DISTANCE, square meters for AREA/VOLUME's base. Null if there aren't
+     * enough points yet. Shown to the user so they know what they're correcting.
+     */
+    fun rawValueForCalibration(): Double? {
+        val currentPoints = _points.value
+        return when (_mode.value) {
+            MeasurementMode.DISTANCE -> {
+                if (currentPoints.size < 2) return null
+                var total = 0.0
+                for (i in 0 until currentPoints.size - 1) {
+                    total += GeometryUtils.distance3D(currentPoints[i], currentPoints[i + 1])
+                }
+                total * _scaleFactor.value
+            }
+            MeasurementMode.AREA -> {
+                if (currentPoints.size < 3) return null
+                calculateCurrentArea()
+            }
+            MeasurementMode.VOLUME -> {
+                if (currentPoints.size < 3 || _heightMeters.value <= 0.0) return null
+                calculateCurrentValue()
+            }
+        }
+    }
+
+    /**
+     * Calibrates by verification: the user measured something whose real value they
+     * already know (a wall, a known board, etc.) and reports the true value here.
+     * Recomputes [scaleFactor] so future measurements are corrected by the same ratio.
+     * Returns true if the correction was applied.
+     */
+    fun calibrateFromKnownRealValue(trueValue: Double): Boolean {
+        if (trueValue <= 0.0) return false
+        val currentPoints = _points.value
+        val currentScale = _scaleFactor.value
+
+        val newScale = when (_mode.value) {
+            MeasurementMode.DISTANCE -> {
+                if (currentPoints.size < 2) return false
+                var rawTotal = 0.0
+                for (i in 0 until currentPoints.size - 1) {
+                    rawTotal += GeometryUtils.distance3D(currentPoints[i], currentPoints[i + 1])
+                }
+                if (rawTotal <= 0.0) return false
+                trueValue / rawTotal
+            }
+            MeasurementMode.AREA -> {
+                if (currentPoints.size < 3) return false
+                val rawArea = GeometryUtils.polygonArea3D(currentPoints)
+                if (rawArea <= 0.0) return false
+                sqrt(trueValue / rawArea)
+            }
+            MeasurementMode.VOLUME -> {
+                if (currentPoints.size < 3) return false
+                val rawArea = GeometryUtils.polygonArea3D(currentPoints)
+                val height = _heightMeters.value
+                if (rawArea <= 0.0 || height <= 0.0) return false
+                sqrt(trueValue / (rawArea * height))
+            }
+        }
+
+        if (newScale.isNaN() || newScale.isInfinite() || newScale <= 0.0) return false
+
+        _scaleFactor.value = newScale.coerceIn(0.02, 50.0)
+        _lastCalibrationCorrection.value = _scaleFactor.value / currentScale
+        _calibrationMethod.value = CalibrationMethod.KNOWN_MEASUREMENT
+        return true
     }
 
     /**
