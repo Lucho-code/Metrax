@@ -59,6 +59,7 @@ import com.example.ui.viewmodel.MeasurementViewModel
 fun HomeScreen(
     viewModel: MeasurementViewModel,
     onNavigateToMeasure: (MeasurementMode) -> Unit,
+    onNavigateToArVolume: () -> Unit,
     onNavigateToHistory: () -> Unit
 ) {
     val historyItems by viewModel.historyList.collectAsStateWithLifecycle()
@@ -262,6 +263,78 @@ fun HomeScreen(
                                 color = Color.Black
                             )
                         }
+                    }
+                }
+            }
+
+            // AR Point Cloud Volume Measurement Card (stockpile/pile scanning)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_ar_volume"),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = AccentEmerald.copy(alpha = 0.12f)),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, AccentEmerald.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(AccentEmerald.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ViewInAr,
+                                contentDescription = null,
+                                tint = AccentEmerald,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Volumen AR — Nube de puntos",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Escaneá pilas y acopios de material con la cámara",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Rodeá la base del material marcando su contorno y calculá el volumen real reconstruyendo la superficie con ARCore (detección de plano, profundidad y nube de puntos).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = onNavigateToArVolume,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("btn_measure_ar_volume"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ViewInAr,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.Black
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Escanear Pila / Acopio (AR)", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
                 }
             }

@@ -321,10 +321,15 @@ private fun buildSummaryText(item: MeasurementEntity, unitSystem: UnitSystem): S
         "\n• Altura/Profundidad: ${GeometryUtils.formatLength(item.heightValue, unitSystem)}"
     } else ""
 
+    val arInfo = if (item.method == "AR_POINT_CLOUD") {
+        val coverage = item.surfaceCoverageConfidence?.let { "${(it * 100).toInt()}%" } ?: "N/D"
+        "\n🔬 Método: ARCore Depth + Nube de puntos\n📡 Cobertura de superficie: $coverage"
+    } else ""
+
     return "📏 Metraje Instante - $modeLabel\n" +
             "📌 Título: ${item.title}\n" +
             "📊 Resultado: $formattedVal$extraInfo\n" +
-            "🌐 Superficie: ${item.planeType}"
+            "🌐 Superficie: ${item.planeType}$arInfo"
 }
 
 @Composable
@@ -436,6 +441,38 @@ private fun MeasurementCardItem(
                             style = MaterialTheme.typography.labelSmall,
                             color = AccentEmerald
                         )
+                    }
+
+                    if (item.method == "AR_POINT_CLOUD") {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = AccentEmerald.copy(alpha = 0.18f)
+                            ) {
+                                Text(
+                                    text = "AR · Nube de puntos",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = AccentEmerald,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            item.surfaceCoverageConfidence?.let { confidence ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = "Cobertura ${(confidence * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     if (item.title.isNotBlank()) {

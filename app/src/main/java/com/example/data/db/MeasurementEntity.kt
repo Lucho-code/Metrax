@@ -14,5 +14,8 @@ data class MeasurementEntity(
     val title: String = "",
     val pointsJson: String = "",
     val createdAt: Long = System.currentTimeMillis(),
-    val planeType: String = "FLOOR"
+    val planeType: String = "FLOOR",
+    val method: String = "MANUAL_TAP", // MANUAL_TAP or AR_POINT_CLOUD
+    val surfaceCoverageConfidence: Float? = null, // AR_POINT_CLOUD only: ratio of surface grid with valid depth
+    val toeCoverageConfidence: Float? = null // AR_POINT_CLOUD only: ratio of boundary anchors well tracked
 )
