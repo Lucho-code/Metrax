@@ -1,0 +1,77 @@
+name: Build Debug APK
+
+# Builds a debug APK and publishes it as a GitHub Release asset so it can be
+# downloaded with a plain link. Runs on GitHub-hosted runners because they
+# have unrestricted access to Google's Android SDK/Maven servers.
+on:
+  push:
+    branches:
+      - claude/app-functionalities-rri0kr
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace -Pandroid.builder.sdkDownload=true
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found!" >&2
+            exit 1
+          fi
+          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found APK at $APK_PATH"
+
+      - name: Upload APK as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrax-debug-apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Publish APK as a Release asset
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/claude/app-functionalities-rri0kr'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-build-${{ github.run_number }}
+          name: "Metrax debug APK (build ${{ github.run_number }})"
+          body: |
+            Automated debug APK build from commit ${{ github.sha }}.
+            Not signed for release — for testing/sideloading only.
+          files: ${{ steps.apk.outputs.path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
