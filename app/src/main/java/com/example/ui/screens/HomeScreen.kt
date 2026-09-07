@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Tune
@@ -59,11 +60,14 @@ import com.example.ui.viewmodel.MeasurementViewModel
 fun HomeScreen(
     viewModel: MeasurementViewModel,
     onNavigateToMeasure: (MeasurementMode) -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToArVolume: () -> Unit,
+    onNavigateToHistory: () -> Unit,
+    onNavigateToPiles: () -> Unit
 ) {
     val historyItems by viewModel.historyList.collectAsStateWithLifecycle()
     val selectedPlane by viewModel.selectedPlane.collectAsStateWithLifecycle()
     val calibrationPreset by viewModel.calibrationPreset.collectAsStateWithLifecycle()
+    val pilesList by viewModel.pilesList.collectAsStateWithLifecycle()
     val scrollState = rememberScrollState()
 
     val totalSaved = historyItems.size
@@ -266,6 +270,78 @@ fun HomeScreen(
                 }
             }
 
+            // AR Point Cloud Volume Measurement Card (stockpile/pile scanning)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_ar_volume"),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = AccentEmerald.copy(alpha = 0.12f)),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, AccentEmerald.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(AccentEmerald.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ViewInAr,
+                                contentDescription = null,
+                                tint = AccentEmerald,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Volumen AR — Nube de puntos",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Escaneá pilas y acopios de material con la cámara",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Rodeá la base del material marcando su contorno y calculá el volumen real reconstruyendo la superficie con ARCore (detección de plano, profundidad y nube de puntos).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = onNavigateToArVolume,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("btn_measure_ar_volume"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ViewInAr,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.Black
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Escanear Pila / Acopio (AR)", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
+            }
+
             // Scale Calibration Section
             Card(
                 modifier = Modifier
@@ -396,6 +472,67 @@ fun HomeScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // Piles / Sitios Summary Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToPiles() }
+                    .testTag("card_piles_summary"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(SecondaryCyan.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Inventory2,
+                                contentDescription = null,
+                                tint = SecondaryCyan
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Acopios / Piles",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (pilesList.isEmpty()) "Sin acopios creados aún"
+                                else "${pilesList.size} acopio(s) — seguimiento en el tiempo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Ir a acopios",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

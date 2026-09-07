@@ -14,5 +14,12 @@ data class MeasurementEntity(
     val title: String = "",
     val pointsJson: String = "",
     val createdAt: Long = System.currentTimeMillis(),
-    val planeType: String = "FLOOR"
+    val planeType: String = "FLOOR",
+    val method: String = "MANUAL_TAP", // MANUAL_TAP or AR_POINT_CLOUD
+    val surfaceCoverageConfidence: Float? = null, // AR_POINT_CLOUD only: ratio of surface grid with valid depth
+    val toeCoverageConfidence: Float? = null, // AR_POINT_CLOUD only: ratio of boundary anchors well tracked
+    val photoPath: String? = null, // absolute path to a saved JPEG snapshot of the scene, in app-internal storage
+    val materialType: String? = null, // MaterialType enum name, null = sin material asignado
+    val tonnage: Double? = null, // volume * material density at save time, in metric tons
+    val pileId: Long? = null // FK to PileEntity.id, null = sin acopio/sitio asignado
 )

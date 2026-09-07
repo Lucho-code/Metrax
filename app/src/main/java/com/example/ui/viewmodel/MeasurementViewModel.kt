@@ -5,13 +5,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
 import com.example.data.db.MeasurementEntity
+import com.example.data.db.PileEntity
+import com.example.data.model.CalibrationMethod
 import com.example.data.model.CalibrationPreset
+import com.example.data.model.MaterialType
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
 import com.example.data.repository.MeasurementRepository
 import com.example.util.GeometryUtils
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,8 +31,8 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val repository: MeasurementRepository
 
     init {
-        val dao = AppDatabase.getDatabase(application).measurementDao()
-        repository = MeasurementRepository(dao)
+        val db = AppDatabase.getDatabase(application)
+        repository = MeasurementRepository(db.measurementDao(), db.pileDao())
     }
 
     private val _mode = MutableStateFlow(MeasurementMode.DISTANCE)
@@ -60,6 +64,30 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val _showCalibrationDialog = MutableStateFlow(false)
     val showCalibrationDialog: StateFlow<Boolean> = _showCalibrationDialog.asStateFlow()
 
+    // "Verify against a known real measurement" calibration: measure something whose
+    // real-world value you already know, then correct the scale factor from the difference.
+    private val _calibrationMethod = MutableStateFlow(CalibrationMethod.REFERENCE_OBJECT)
+    val calibrationMethod: StateFlow<CalibrationMethod> = _calibrationMethod.asStateFlow()
+
+    private val _lastCalibrationCorrection = MutableStateFlow<Double?>(null)
+    val lastCalibrationCorrection: StateFlow<Double?> = _lastCalibrationCorrection.asStateFlow()
+
+    // Custom real-world length (meters) for the KNOWN_MEASUREMENT calibration source.
+    private val _knownLengthMeters = MutableStateFlow(1.0)
+    val knownLengthMeters: StateFlow<Double> = _knownLengthMeters.asStateFlow()
+
+    // Dedicated calibration tap flow: independent of the mode's own measurement
+    // points, so calibrating never interferes with (or depends on) whatever the
+    // user has already tapped to measure. Tap point A, then point B, then apply.
+    private val _calibrationTapModeActive = MutableStateFlow(false)
+    val calibrationTapModeActive: StateFlow<Boolean> = _calibrationTapModeActive.asStateFlow()
+
+    private val _calibrationTapPoints = MutableStateFlow<List<Point3D>>(emptyList())
+    val calibrationTapPoints: StateFlow<List<Point3D>> = _calibrationTapPoints.asStateFlow()
+
+    private val _calibrationTargetLengthMeters = MutableStateFlow(0.0)
+    val calibrationTargetLengthMeters: StateFlow<Double> = _calibrationTargetLengthMeters.asStateFlow()
+
     private val _trackingReady = MutableStateFlow(true)
     val trackingReady: StateFlow<Boolean> = _trackingReady.asStateFlow()
 
@@ -68,6 +96,27 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _showSaveDialog = MutableStateFlow(false)
     val showSaveDialog: StateFlow<Boolean> = _showSaveDialog.asStateFlow()
+
+    // Material seleccionado para convertir volumen -> toneladas ("Reporte en toneladas").
+    // Es un estado compartido: tanto el modo manual como el AR lo leen y lo asignan
+    // al guardar una medición de VOLUMEN.
+    private val _selectedMaterial = MutableStateFlow(MaterialType.NONE)
+    val selectedMaterial: StateFlow<MaterialType> = _selectedMaterial.asStateFlow()
+
+    // Acopio/"Pile" activo: cuando el usuario entra a medir desde el detalle de un
+    // acopio, la próxima medición guardada queda asociada a ese acopio y luego se limpia.
+    private val _activePileId = MutableStateFlow<Long?>(null)
+    val activePileId: StateFlow<Long?> = _activePileId.asStateFlow()
+
+    val pilesList: StateFlow<List<PileEntity>> = repository.allPiles.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // Foto capturada de la cámara al guardar (modo manual), en almacenamiento interno de la app.
+    private val _capturedPhotoPath = MutableStateFlow<String?>(null)
+    val capturedPhotoPath: StateFlow<String?> = _capturedPhotoPath.asStateFlow()
 
     private val _historyFilter = MutableStateFlow("ALL") // ALL, DISTANCE, AREA, VOLUME
     val historyFilter: StateFlow<String> = _historyFilter.asStateFlow()
@@ -131,28 +180,98 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setShowCalibrationDialog(show: Boolean) {
         _showCalibrationDialog.value = show
+        if (show) _lastCalibrationCorrection.value = null
+    }
+
+    fun setCalibrationMethod(method: CalibrationMethod) {
+        _calibrationMethod.value = method
+    }
+
+    fun setKnownLengthMeters(meters: Double) {
+        _knownLengthMeters.value = meters.coerceAtLeast(0.01)
     }
 
     /**
-     * Calibrates scale using first 2 points distance against selected reference object length.
+     * Starts the dedicated calibration tap flow: closes the setup dialog and puts
+     * the live camera into "tap point A, then point B" mode, independent of
+     * whatever points the active measuring mode already has. The target real
+     * length comes from the selected reference preset (or its custom value) or
+     * from the typed-in known length, depending on [calibrationMethod].
+     * Returns false if no valid target length is available yet.
      */
-    fun calibrateScaleFromPoints() {
-        val currentPoints = _points.value
-        if (currentPoints.size >= 2) {
-            val pixelDist = GeometryUtils.distance3D(currentPoints[0], currentPoints[1])
-            val targetRefMeters = if (_calibrationPreset.value == CalibrationPreset.CUSTOM) {
+    fun beginCalibrationTapping(): Boolean {
+        val targetLength = when (_calibrationMethod.value) {
+            CalibrationMethod.REFERENCE_OBJECT -> if (_calibrationPreset.value == CalibrationPreset.CUSTOM) {
                 _customRefMeters.value
             } else {
                 _calibrationPreset.value.lengthMeters
             }
-
-            if (pixelDist > 0 && targetRefMeters > 0) {
-                // Adjust scale factor based on reference measurement
-                val newScale = targetRefMeters / pixelDist
-                _scaleFactor.value = newScale
-                _showCalibrationDialog.value = false
-            }
+            CalibrationMethod.KNOWN_MEASUREMENT -> _knownLengthMeters.value
         }
+        if (targetLength <= 0.0) return false
+
+        _calibrationTargetLengthMeters.value = targetLength
+        _calibrationTapPoints.value = emptyList()
+        _calibrationTapModeActive.value = true
+        _showCalibrationDialog.value = false
+        return true
+    }
+
+    /**
+     * Registers a calibration tap. A third tap restarts from point A so the user
+     * can always just keep tapping until both points look right.
+     */
+    fun addCalibrationTapPoint(point: Point3D) {
+        if (!_calibrationTapModeActive.value) return
+        val current = _calibrationTapPoints.value
+        _calibrationTapPoints.value = if (current.size >= 2) listOf(point) else current + point
+    }
+
+    fun undoCalibrationTapPoint() {
+        if (_calibrationTapPoints.value.isNotEmpty()) {
+            _calibrationTapPoints.value = _calibrationTapPoints.value.dropLast(1)
+        }
+    }
+
+    fun resetCalibrationTapPoints() {
+        _calibrationTapPoints.value = emptyList()
+    }
+
+    fun cancelCalibrationTapping() {
+        _calibrationTapModeActive.value = false
+        _calibrationTapPoints.value = emptyList()
+    }
+
+    /** What the app currently reads for the tapped segment, for on-screen feedback. */
+    fun calibrationTapRawDistance(): Double? {
+        val pts = _calibrationTapPoints.value
+        if (pts.size < 2) return null
+        return GeometryUtils.distance3D(pts[0], pts[1]) * _scaleFactor.value
+    }
+
+    /**
+     * Applies the calibration: compares the raw (pre-scale) distance between the
+     * two tapped points against the known real length and corrects [scaleFactor]
+     * by the resulting ratio. Returns true if the correction was applied.
+     */
+    fun applyCalibrationTap(): Boolean {
+        val pts = _calibrationTapPoints.value
+        if (pts.size < 2) return false
+        val targetLength = _calibrationTargetLengthMeters.value
+        if (targetLength <= 0.0) return false
+
+        val rawDistance = GeometryUtils.distance3D(pts[0], pts[1])
+        if (rawDistance <= 0.0) return false
+
+        val newScale = targetLength / rawDistance
+        if (newScale.isNaN() || newScale.isInfinite() || newScale <= 0.0) return false
+
+        val previousScale = _scaleFactor.value
+        _scaleFactor.value = newScale.coerceIn(0.02, 50.0)
+        _lastCalibrationCorrection.value = _scaleFactor.value / previousScale
+        _calibrationTapModeActive.value = false
+        _calibrationTapPoints.value = emptyList()
+        return true
     }
 
     fun addPoint(point: Point3D) {
@@ -171,6 +290,51 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setShowSaveDialog(show: Boolean) {
         _showSaveDialog.value = show
+    }
+
+    fun setMaterial(material: MaterialType) {
+        _selectedMaterial.value = material
+    }
+
+    fun setActivePile(pileId: Long?) {
+        _activePileId.value = pileId
+    }
+
+    fun setCapturedPhotoPath(path: String?) {
+        _capturedPhotoPath.value = path
+    }
+
+    fun measurementsForPile(pileId: Long): Flow<List<MeasurementEntity>> =
+        repository.measurementsForPile(pileId)
+
+    fun pileById(pileId: Long): Flow<PileEntity?> = repository.pileById(pileId)
+
+    fun createPile(name: String, material: MaterialType) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            repository.insertPile(
+                PileEntity(
+                    name = name.trim(),
+                    materialType = if (material == MaterialType.NONE) null else material.name
+                )
+            )
+        }
+    }
+
+    fun deletePile(pileId: Long) {
+        viewModelScope.launch {
+            repository.deletePile(pileId)
+        }
+    }
+
+    /** Toneladas estimadas para el volumen actual, o null si no aplica (modo != VOLUME o sin material). */
+    fun calculateCurrentTonnage(): Double? {
+        if (_mode.value != MeasurementMode.VOLUME) return null
+        val material = _selectedMaterial.value
+        if (material == MaterialType.NONE) return null
+        val volume = calculateCurrentValue()
+        if (volume <= 0.0) return null
+        return volume * material.densityTonPerCubicMeter
     }
 
     fun setHistoryFilter(filter: String) {
@@ -239,6 +403,9 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             }
         } else title
 
+        val tonnage = calculateCurrentTonnage()
+        val material = _selectedMaterial.value
+
         val entity = MeasurementEntity(
             mode = _mode.value.name,
             value = valCalculated,
@@ -246,13 +413,19 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             scaleFactor = _scaleFactor.value,
             title = defaultTitle,
             pointsJson = jsonArray.toString(),
-            planeType = _selectedPlane.value.name
+            planeType = _selectedPlane.value.name,
+            photoPath = _capturedPhotoPath.value,
+            materialType = if (tonnage != null) material.name else null,
+            tonnage = tonnage,
+            pileId = _activePileId.value
         )
 
         viewModelScope.launch {
             repository.insert(entity)
             _points.value = emptyList()
             _showSaveDialog.value = false
+            _capturedPhotoPath.value = null
+            _activePileId.value = null
         }
     }
 

@@ -31,6 +31,7 @@ import androidx.core.content.ContextCompat
 fun CameraManager(
     modifier: Modifier = Modifier,
     onCameraReady: (Boolean) -> Unit = {},
+    onPreviewViewReady: (PreviewView) -> Unit = {},
     overlayContent: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -70,6 +71,7 @@ fun CameraManager(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         scaleType = PreviewView.ScaleType.FILL_CENTER
+                        onPreviewViewReady(this)
                     }
                 },
                 update = { previewView ->

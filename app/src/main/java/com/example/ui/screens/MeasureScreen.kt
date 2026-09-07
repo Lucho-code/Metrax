@@ -72,18 +72,23 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.camera.view.PreviewView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.CalibrationMethod
 import com.example.data.model.CalibrationPreset
+import com.example.data.model.MaterialType
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
 import com.example.ui.components.CameraManager
+import com.example.ui.components.MaterialSelectorRow
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.PrimaryOrange
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.PhotoStorage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,15 +104,27 @@ fun MeasureScreen(
     val heightMeters by viewModel.heightMeters.collectAsStateWithLifecycle()
     val scaleFactor by viewModel.scaleFactor.collectAsStateWithLifecycle()
     val calibrationPreset by viewModel.calibrationPreset.collectAsStateWithLifecycle()
+    val calibrationMethod by viewModel.calibrationMethod.collectAsStateWithLifecycle()
+    val lastCalibrationCorrection by viewModel.lastCalibrationCorrection.collectAsStateWithLifecycle()
     val showCalibrationDialog by viewModel.showCalibrationDialog.collectAsStateWithLifecycle()
+    val calibrationTapModeActive by viewModel.calibrationTapModeActive.collectAsStateWithLifecycle()
+    val calibrationTapPoints by viewModel.calibrationTapPoints.collectAsStateWithLifecycle()
+    val calibrationTargetLengthMeters by viewModel.calibrationTargetLengthMeters.collectAsStateWithLifecycle()
     val showSaveDialog by viewModel.showSaveDialog.collectAsStateWithLifecycle()
+    val selectedMaterial by viewModel.selectedMaterial.collectAsStateWithLifecycle()
+    val activePileId by viewModel.activePileId.collectAsStateWithLifecycle()
+    val pilesList by viewModel.pilesList.collectAsStateWithLifecycle()
 
     var saveTitleInput by remember { mutableStateOf("") }
     var heightSliderValue by remember(heightMeters) { mutableFloatStateOf(heightMeters.toFloat()) }
     var customRefInput by remember { mutableStateOf("1.00") }
+    var knownLengthInput by remember { mutableStateOf("1.00") }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
 
     val calculatedValue = viewModel.calculateCurrentValue()
     val currentArea = viewModel.calculateCurrentArea()
+    val currentTonnage = viewModel.calculateCurrentTonnage()
+    val activePileName = pilesList.firstOrNull { it.id == activePileId }?.name
 
     // 1. Scale Calibration Dialog
     if (showCalibrationDialog) {
@@ -120,64 +137,140 @@ fun MeasureScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Seleccioná un objeto de referencia conocido colocado en la toma, o ingresá su dimensión manual:",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-
-                    CalibrationPreset.values().forEach { preset ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (preset == calibrationPreset) PrimaryOrange.copy(alpha = 0.2f)
-                                    else Color.DarkGray.copy(alpha = 0.2f)
-                                )
-                                .clickable { viewModel.setCalibrationPreset(preset) }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Always-visible explainer: how calibration works, step by step.
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = SecondaryCyan.copy(alpha = 0.12f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = preset.displayName,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = if (preset == calibrationPreset) FontWeight.Bold else FontWeight.Normal
-                                ),
-                                color = if (preset == calibrationPreset) PrimaryOrange else Color.White
+                                text = "¿Cómo calibrar?",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = SecondaryCyan
+                            )
+                            Text(
+                                text = "1) Elegí un objeto de longitud conocida o ingresá una medida real.\n" +
+                                    "2) Tocá \"Tocar 2 puntos para calibrar\": la pantalla se pone en modo calibración.\n" +
+                                    "3) Tocá el punto inicial y después el punto final sobre ese objeto, en la cámara.\n" +
+                                    "4) Confirmá con \"Aplicar calibración\" — la app ajusta todas las mediciones siguientes.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.LightGray
                             )
                         }
                     }
 
-                    if (calibrationPreset == CalibrationPreset.CUSTOM) {
+                    // Method selector: reference object vs. a typed-in known length
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.DarkGray.copy(alpha = 0.2f))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        CalibrationMethod.values().forEach { method ->
+                            val active = method == calibrationMethod
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) PrimaryOrange else Color.Transparent)
+                                    .clickable { viewModel.setCalibrationMethod(method) }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = method.displayName,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                        textAlign = TextAlign.Center
+                                    ),
+                                    color = if (active) Color.White else Color.LightGray
+                                )
+                            }
+                        }
+                    }
+
+                    if (calibrationMethod == CalibrationMethod.REFERENCE_OBJECT) {
+                        Text(
+                            text = "Seleccioná un objeto de referencia de longitud conocida:",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+
+                        CalibrationPreset.values().forEach { preset ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (preset == calibrationPreset) PrimaryOrange.copy(alpha = 0.2f)
+                                        else Color.DarkGray.copy(alpha = 0.2f)
+                                    )
+                                    .clickable { viewModel.setCalibrationPreset(preset) }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = preset.displayName,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = if (preset == calibrationPreset) FontWeight.Bold else FontWeight.Normal
+                                    ),
+                                    color = if (preset == calibrationPreset) PrimaryOrange else Color.White
+                                )
+                            }
+                        }
+
+                        if (calibrationPreset == CalibrationPreset.CUSTOM) {
+                            OutlinedTextField(
+                                value = customRefInput,
+                                onValueChange = {
+                                    customRefInput = it
+                                    it.toDoubleOrNull()?.let { m -> viewModel.setCustomRefMeters(m) }
+                                },
+                                label = { Text("Longitud de referencia en metros (ej. 1.50)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Ingresá la medida real (en metros) de algo que puedas ver en la cámara (ej. una pared, un ambiente, un caño):",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+
                         OutlinedTextField(
-                            value = customRefInput,
+                            value = knownLengthInput,
                             onValueChange = {
-                                customRefInput = it
-                                it.toDoubleOrNull()?.let { m -> viewModel.setCustomRefMeters(m) }
+                                knownLengthInput = it
+                                it.replace(",", ".").toDoubleOrNull()?.let { m -> viewModel.setKnownLengthMeters(m) }
                             },
-                            label = { Text("Longitud de referencia en metros (ej. 1.50)") },
+                            label = { Text("Medida real en metros (ej. 3.00)") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    if (points.size >= 2) {
-                        Button(
-                            onClick = {
-                                viewModel.calibrateScaleFromPoints()
-                                Toast.makeText(context, "Escala calibrada con éxito", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Calibrar usando los 2 primeros puntos", color = Color.White)
-                        }
-                    } else {
+                    Button(
+                        onClick = {
+                            if (!viewModel.beginCalibrationTapping()) {
+                                Toast.makeText(context, "Ingresá una medida real válida primero", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Tocar 2 puntos para calibrar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    lastCalibrationCorrection?.let { correction ->
                         Text(
-                            text = "💡 Colocá al menos 2 puntos sobre el objeto de referencia en la cámara para aplicar la calibración.",
+                            text = "Última corrección aplicada: ×${String.format("%.3f", correction)}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.LightGray
+                            color = AccentEmerald
                         )
                     }
                 }
@@ -227,11 +320,50 @@ fun MeasureScreen(
                             .fillMaxWidth()
                             .testTag("input_save_title")
                     )
+
+                    if (mode == MeasurementMode.VOLUME) {
+                        Text(
+                            text = "Material (para reporte en toneladas)",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        MaterialSelectorRow(
+                            selected = selectedMaterial,
+                            onSelect = { viewModel.setMaterial(it) }
+                        )
+                        if (currentTonnage != null) {
+                            Text(
+                                text = "≈ " + GeometryUtils.formatTonnage(currentTonnage, unitSystem),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = AccentEmerald
+                            )
+                        }
+                    }
+
+                    if (activePileName != null) {
+                        Surface(shape = RoundedCornerShape(10.dp), color = SecondaryCyan.copy(alpha = 0.15f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth().padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "📦 Se asignará al acopio: $activePileName",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                TextButton(onClick = { viewModel.setActivePile(null) }) {
+                                    Text("Quitar", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
+                        val bitmap = try { previewViewRef?.bitmap } catch (_: Exception) { null }
+                        val photoPath = bitmap?.let { PhotoStorage.savePhoto(context, it) }
+                        viewModel.setCapturedPhotoPath(photoPath)
                         viewModel.saveMeasurement(saveTitleInput)
                         saveTitleInput = ""
                         Toast.makeText(context, "Medición guardada en el historial", Toast.LENGTH_SHORT).show()
@@ -264,6 +396,7 @@ fun MeasureScreen(
         // 1. Live Camera Feed Layer with Overlay Content
         CameraManager(
             modifier = Modifier.fillMaxSize(),
+            onPreviewViewReady = { previewViewRef = it },
             overlayContent = {
                 // 2. Interactive Measuring Canvas Overlay
                 InteractiveMeasuringCanvas(
@@ -282,9 +415,39 @@ fun MeasureScreen(
                             PlaneType.WALL -> 1.5f
                             PlaneType.AIR -> (points.size * 0.2f)
                         }
-                        viewModel.addPoint(Point3D(metersX, metersY, metersZ))
+                        val point = Point3D(metersX, metersY, metersZ)
+                        if (calibrationTapModeActive) {
+                            viewModel.addCalibrationTapPoint(point)
+                        } else {
+                            viewModel.addPoint(point)
+                        }
                     }
                 )
+
+                // 2b. Calibration tap points overlay (point A / point B), drawn on top
+                // using the same pseudo-meter-to-pixel mapping as the canvas above.
+                if (calibrationTapModeActive) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val screenPoints = calibrationTapPoints.map { pt ->
+                            Offset(centerX + pt.x * 180f, centerY + pt.y * 180f)
+                        }
+                        if (screenPoints.size == 2) {
+                            drawLine(
+                                color = PrimaryOrange,
+                                start = screenPoints[0],
+                                end = screenPoints[1],
+                                strokeWidth = 5f
+                            )
+                        }
+                        screenPoints.forEach { pt ->
+                            drawCircle(color = PrimaryOrange.copy(alpha = 0.35f), radius = 22f, center = pt)
+                            drawCircle(color = PrimaryOrange, radius = 11f, center = pt)
+                            drawCircle(color = Color.White, radius = 3.5f, center = pt)
+                        }
+                    }
+                }
             }
         )
 
@@ -466,6 +629,13 @@ fun MeasureScreen(
             ) {
                 Text(
                     text = when {
+                        calibrationTapModeActive && calibrationTapPoints.isEmpty() ->
+                            "Modo calibración: tocá el punto INICIAL sobre el objeto de longitud conocida " +
+                                "(${GeometryUtils.formatLength(calibrationTargetLengthMeters, unitSystem)})."
+                        calibrationTapModeActive && calibrationTapPoints.size == 1 ->
+                            "Ahora tocá el punto FINAL sobre el mismo objeto."
+                        calibrationTapModeActive ->
+                            "Puntos listos. Revisá abajo y presioná \"Aplicar calibración\"."
                         points.isEmpty() -> if (mode == MeasurementMode.DISTANCE)
                             "Tocá sobre la cámara en vivo para fijar puntos de medición."
                         else if (mode == MeasurementMode.AREA)
@@ -490,6 +660,26 @@ fun MeasureScreen(
                 .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (calibrationTapModeActive) {
+                CalibrationTapPanel(
+                    measuredDistance = viewModel.calibrationTapRawDistance(),
+                    unitSystem = unitSystem,
+                    targetLengthMeters = calibrationTargetLengthMeters,
+                    canApply = calibrationTapPoints.size >= 2,
+                    onUndo = { viewModel.undoCalibrationTapPoint() },
+                    onReset = { viewModel.resetCalibrationTapPoints() },
+                    onApply = {
+                        if (viewModel.applyCalibrationTap()) {
+                            Toast.makeText(context, "Calibración aplicada", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "No se pudo calibrar. Probá tocar los puntos de nuevo.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onCancel = { viewModel.cancelCalibrationTapping() }
+                )
+                return@Column
+            }
+
             // Calculated Result Live Card
             AnimatedVisibility(
                 visible = calculatedValue > 0.0,
@@ -553,6 +743,22 @@ fun MeasureScreen(
                                 color = Color.LightGray,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            MaterialSelectorRow(
+                                selected = selectedMaterial,
+                                onSelect = { viewModel.setMaterial(it) },
+                                unselectedContainerColor = Color.White.copy(alpha = 0.1f),
+                                unselectedContentColor = Color.LightGray
+                            )
+                            if (currentTonnage != null) {
+                                Text(
+                                    text = "≈ " + GeometryUtils.formatTonnage(currentTonnage, unitSystem),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = AccentEmerald,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -642,6 +848,96 @@ fun MeasureScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalibrationTapPanel(
+    measuredDistance: Double?,
+    unitSystem: UnitSystem,
+    targetLengthMeters: Double,
+    canApply: Boolean,
+    onUndo: () -> Unit,
+    onReset: () -> Unit,
+    onApply: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("card_calibration_tap"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.9f)),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, PrimaryOrange)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Straighten, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(18.dp))
+                Text(
+                    text = "Calibrando contra " + GeometryUtils.formatLength(targetLengthMeters, unitSystem),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+            }
+
+            if (measuredDistance != null) {
+                Surface(shape = RoundedCornerShape(10.dp), color = SecondaryCyan.copy(alpha = 0.15f)) {
+                    Text(
+                        text = "Medición actual de la app: " + GeometryUtils.formatLength(measuredDistance, unitSystem),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SecondaryCyan,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            } else {
+                Text(
+                    text = "💡 Tocá el punto inicial y luego el final sobre el objeto de referencia en la cámara.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.LightGray
+                )
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onUndo,
+                    modifier = Modifier.weight(1f).testTag("btn_calibration_undo"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.18f))
+                ) {
+                    Text("Deshacer", color = Color.White)
+                }
+                Button(
+                    onClick = onReset,
+                    modifier = Modifier.weight(1f).testTag("btn_calibration_reset"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.18f))
+                ) {
+                    Text("Reiniciar", color = Color.White)
+                }
+            }
+
+            Button(
+                onClick = onApply,
+                enabled = canApply,
+                modifier = Modifier.fillMaxWidth().testTag("btn_calibration_apply"),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PrimaryOrange,
+                    disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                )
+            ) {
+                Text("Aplicar calibración", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().testTag("btn_calibration_cancel")) {
+                Text("Cancelar", color = Color.LightGray)
             }
         }
     }
