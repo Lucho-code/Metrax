@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -75,6 +76,7 @@ import com.example.ui.theme.SecondaryCyan
 import com.example.ui.theme.Slate400
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.LocalAppStrings
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -86,6 +88,7 @@ fun HistoryScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
     val historyItems by viewModel.historyList.collectAsStateWithLifecycle()
     val activeFilter by viewModel.historyFilter.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -107,23 +110,23 @@ fun HistoryScreen(
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("Borrar historial", fontWeight = FontWeight.Bold) },
-            text = { Text("¿Estás seguro de que querés borrar todas las mediciones guardadas?") },
+            title = { Text(strings.deleteConfirmTitle, fontWeight = FontWeight.Bold) },
+            text = { Text(strings.deleteConfirmMessage) },
             confirmButton = {
                 Button(
                     onClick = {
                         viewModel.clearAllHistory()
                         showClearDialog = false
-                        Toast.makeText(context, "Historial borrado", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.clearAll, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Borrar todo", color = Color.White)
+                    Text(strings.delete, color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
-                    Text("Cancelar")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -132,11 +135,13 @@ fun HistoryScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .widthIn(max = 640.dp)
                 .padding(top = 36.dp, start = 20.dp, end = 20.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -160,13 +165,13 @@ fun HistoryScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver",
+                            contentDescription = strings.back,
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
 
                     Text(
-                        text = "Historial",
+                        text = strings.history,
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 24.sp
@@ -183,13 +188,13 @@ fun HistoryScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Download,
-                                contentDescription = "Exportar",
+                                contentDescription = strings.export,
                                 tint = PrimaryAmber,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Exportar",
+                                text = strings.export,
                                 color = PrimaryAmber,
                                 fontWeight = FontWeight.Bold
                             )
@@ -201,13 +206,13 @@ fun HistoryScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "Borrar todo",
+                                contentDescription = strings.clearAll,
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Borrar",
+                                text = strings.delete,
                                 color = MaterialTheme.colorScheme.error,
                                 fontWeight = FontWeight.Bold
                             )
@@ -220,7 +225,7 @@ fun HistoryScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
-                placeholder = { Text("Buscar medición por nombre o superficie...") },
+                placeholder = { Text(strings.searchPlaceholder) },
                 leadingIcon = {
                     Icon(imageVector = Icons.Default.Search, contentDescription = null)
                 },
@@ -243,10 +248,10 @@ fun HistoryScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf(
-                    "ALL" to "Todos",
-                    "DISTANCE" to "Distancias",
-                    "AREA" to "Áreas",
-                    "VOLUME" to "Volúmenes"
+                    "ALL" to strings.filterAll,
+                    "DISTANCE" to strings.filterDistance,
+                    "AREA" to strings.filterArea,
+                    "VOLUME" to strings.filterVolume
                 ).forEach { (filterKey, label) ->
                     val selected = activeFilter == filterKey
                     FilterChip(
@@ -291,7 +296,7 @@ fun HistoryScreen(
                             )
                         }
                         Text(
-                            text = "Todavía no guardaste ninguna medición.",
+                            text = strings.noMeasurementsYet,
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

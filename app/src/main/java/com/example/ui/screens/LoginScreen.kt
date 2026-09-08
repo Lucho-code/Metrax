@@ -43,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -266,7 +268,14 @@ fun LoginScreen(
                             .testTag("btn_social_google"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
                     ) {
-                        Text("Google", color = Color.White, fontWeight = FontWeight.Bold)
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_google_logo),
+                            contentDescription = "Google",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Google", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
 
                     OutlinedButton(
@@ -282,7 +291,14 @@ fun LoginScreen(
                             .testTag("btn_social_apple"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
                     ) {
-                        Text("Apple", color = Color.White, fontWeight = FontWeight.Bold)
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_apple_logo),
+                            contentDescription = "Apple",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Apple", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
