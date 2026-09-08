@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -43,6 +44,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -66,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.db.MeasurementEntity
 import com.example.data.model.MeasurementMode
 import com.example.data.model.UnitSystem
+import com.example.ui.components.ExportDialog
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.PrimaryOrange
 import com.example.ui.theme.SecondaryCyan
@@ -89,6 +92,16 @@ fun HistoryScreen(
     val unitSystem by viewModel.unitSystem.collectAsStateWithLifecycle()
 
     var showClearDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+
+    // Export Dialog
+    if (showExportDialog) {
+        ExportDialog(
+            items = historyItems,
+            unitSystem = unitSystem,
+            onDismiss = { showExportDialog = false }
+        )
+    }
 
     // Clear All Dialog
     if (showClearDialog) {
@@ -163,22 +176,42 @@ fun HistoryScreen(
                 }
 
                 if (historyItems.isNotEmpty()) {
-                    TextButton(
-                        onClick = { showClearDialog = true },
-                        modifier = Modifier.testTag("btn_clear_all_history")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = "Borrar todo",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Borrar todo",
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Bold
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(
+                            onClick = { showExportDialog = true },
+                            modifier = Modifier.testTag("btn_export_history")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Exportar",
+                                tint = PrimaryOrange,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Exportar",
+                                color = PrimaryOrange,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        TextButton(
+                            onClick = { showClearDialog = true },
+                            modifier = Modifier.testTag("btn_clear_all_history")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = "Borrar todo",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Borrar",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -321,7 +354,7 @@ private fun buildSummaryText(item: MeasurementEntity, unitSystem: UnitSystem): S
         "\n• Altura/Profundidad: ${GeometryUtils.formatLength(item.heightValue, unitSystem)}"
     } else ""
 
-    return "📏 Metraje Instante - $modeLabel\n" +
+    return "📏 Metrax - $modeLabel\n" +
             "📌 Título: ${item.title}\n" +
             "📊 Resultado: $formattedVal$extraInfo\n" +
             "🌐 Superficie: ${item.planeType}"

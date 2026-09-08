@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Metraje Instante"
+rootProject.name = "Metrax"
 
 include(":app")
