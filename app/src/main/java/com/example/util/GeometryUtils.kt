@@ -1,5 +1,9 @@
 package com.example.util
 
+import androidx.compose.ui.graphics.Color
+import com.example.data.model.BoundingBox3D
+import com.example.data.model.PointCloudColorMap
+import com.example.data.model.PointCloudPoint
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
 import java.util.Locale
@@ -203,5 +207,116 @@ object GeometryUtils {
                 String.format(Locale.US, "%.2f ft³ (%.1f gal)", cubicFeet, gallons)
             }
         }
+    }
+
+    /**
+     * Calculates axis-aligned 3D bounding box for a point cloud.
+     */
+    fun calculateBoundingBox(points: List<PointCloudPoint>): BoundingBox3D? {
+        if (points.isEmpty()) return null
+        var minX = points[0].x
+        var maxX = points[0].x
+        var minY = points[0].y
+        var maxY = points[0].y
+        var minZ = points[0].z
+        var maxZ = points[0].z
+
+        for (pt in points) {
+            if (pt.x < minX) minX = pt.x
+            if (pt.x > maxX) maxX = pt.x
+            if (pt.y < minY) minY = pt.y
+            if (pt.y > maxY) maxY = pt.y
+            if (pt.z < minZ) minZ = pt.z
+            if (pt.z > maxZ) maxZ = pt.z
+        }
+
+        return BoundingBox3D(minX, maxX, minY, maxY, minZ, maxZ)
+    }
+
+    fun distance3D(a: PointCloudPoint, b: PointCloudPoint): Double {
+        val dx = (b.x - a.x).toDouble()
+        val dy = (b.y - a.y).toDouble()
+        val dz = (b.z - a.z).toDouble()
+        return sqrt(dx * dx + dy * dy + dz * dz)
+    }
+
+    /**
+     * Returns color representation for a point in point cloud based on selected color map.
+     */
+    fun getColorForPoint(point: PointCloudPoint, colorMap: PointCloudColorMap): Color {
+        val hue = point.colorHue.coerceIn(0f, 1f)
+        val conf = point.confidence.coerceIn(0.2f, 1f)
+        return when (colorMap) {
+            PointCloudColorMap.HEATMAP -> {
+                // Rainbow heatmap from Red (near/low) -> Yellow -> Green -> Cyan -> Blue (far/high)
+                when {
+                    hue < 0.2f -> {
+                        val t = hue / 0.2f
+                        Color(red = 1f, green = t * 0.8f, blue = 0.2f, alpha = conf)
+                    }
+                    hue < 0.4f -> {
+                        val t = (hue - 0.2f) / 0.2f
+                        Color(red = 1f - t * 0.8f, green = 1f, blue = 0.1f, alpha = conf)
+                    }
+                    hue < 0.7f -> {
+                        val t = (hue - 0.4f) / 0.3f
+                        Color(red = 0.1f, green = 1f - t * 0.3f, blue = 0.4f + t * 0.6f, alpha = conf)
+                    }
+                    else -> {
+                        val t = (hue - 0.7f) / 0.3f
+                        Color(red = t * 0.8f, green = 0.2f, blue = 1f, alpha = conf)
+                    }
+                }
+            }
+            PointCloudColorMap.NEON_CYAN -> {
+                Color(red = 0.0f, green = 0.94f, blue = 1.0f, alpha = conf)
+            }
+            PointCloudColorMap.SPECTRUM -> {
+                Color(red = 0.0f, green = 1.0f - hue * 0.4f, blue = 0.6f + hue * 0.4f, alpha = conf)
+            }
+            PointCloudColorMap.MONOCHROME -> {
+                Color(red = 1.0f, green = 0.73f, blue = 0.2f, alpha = conf) // High-precision amber
+            }
+        }
+    }
+
+    /**
+     * Generates Stanford PLY 3D Point Cloud ASCII file format.
+     */
+    fun generatePlyPointCloud(points: List<PointCloudPoint>): String {
+        val sb = StringBuilder()
+        sb.append("ply\n")
+        sb.append("format ascii 1.0\n")
+        sb.append("comment Metrax 3D LiDAR Point Cloud Scan\n")
+        sb.append("element vertex ${points.size}\n")
+        sb.append("property float x\n")
+        sb.append("property float y\n")
+        sb.append("property float z\n")
+        sb.append("property uchar red\n")
+        sb.append("property uchar green\n")
+        sb.append("property uchar blue\n")
+        sb.append("end_header\n")
+
+        for (pt in points) {
+            val col = getColorForPoint(pt, PointCloudColorMap.HEATMAP)
+            val r = (col.red * 255).toInt().coerceIn(0, 255)
+            val g = (col.green * 255).toInt().coerceIn(0, 255)
+            val b = (col.blue * 255).toInt().coerceIn(0, 255)
+            sb.append("${pt.x} ${pt.y} ${pt.z} $r $g $b\n")
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Generates Wavefront OBJ Point Cloud format.
+     */
+    fun generateObjPointCloud(points: List<PointCloudPoint>): String {
+        val sb = StringBuilder()
+        sb.append("# Metrax 3D LiDAR Scan\n")
+        sb.append("# Vertices: ${points.size}\n")
+        for (pt in points) {
+            sb.append("v ${pt.x} ${pt.y} ${pt.z}\n")
+        }
+        return sb.toString()
     }
 }

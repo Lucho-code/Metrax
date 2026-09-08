@@ -281,6 +281,38 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun registerWithGoogle(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            _registerState.value = _registerState.value.copy(isLoading = true)
+            kotlinx.coroutines.delay(600)
+            val user = User(name = "Usuario Google", email = "usuario.google@gmail.com")
+            _currentUser.value = user
+            _authMode.value = AuthMode.AUTHENTICATED
+            prefs.edit()
+                .putString("user_email", user.email)
+                .putString("user_name", user.name)
+                .apply()
+            _registerState.value = RegisterFormState()
+            onSuccess()
+        }
+    }
+
+    fun registerWithApple(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            _registerState.value = _registerState.value.copy(isLoading = true)
+            kotlinx.coroutines.delay(600)
+            val user = User(name = "Usuario Apple", email = "usuario.apple@icloud.com")
+            _currentUser.value = user
+            _authMode.value = AuthMode.AUTHENTICATED
+            prefs.edit()
+                .putString("user_email", user.email)
+                .putString("user_name", user.name)
+                .apply()
+            _registerState.value = RegisterFormState()
+            onSuccess()
+        }
+    }
+
     fun logout() {
         _currentUser.value = null
         _authMode.value = AuthMode.WELCOME

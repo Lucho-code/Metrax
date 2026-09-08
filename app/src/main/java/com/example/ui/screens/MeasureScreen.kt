@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -101,9 +102,25 @@ import com.example.ui.theme.PrimaryAmber
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.LocalAppStrings
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.geometry.Size
+import com.example.data.model.BoundingBox3D
+import com.example.data.model.PointCloudColorMap
+import com.example.data.model.PointCloudPoint
+import com.example.ui.components.PointCloudViewer3D
+import com.example.ui.components.ScanGuidanceOverlay
+import androidx.compose.material.icons.filled.HelpOutline
+import android.content.Context
+import kotlin.math.sqrt
 
 private fun projectPoint3DToScreen(
     point: Point3D,
@@ -111,7 +128,13 @@ private fun projectPoint3DToScreen(
     width: Float,
     height: Float
 ): Offset? {
-    if (frame == null) return null
+    if (frame == null) {
+        val focal = width * 0.85f
+        val depth = (-point.z).coerceAtLeast(0.1f)
+        val sx = width / 2f + (point.x / depth) * focal
+        val sy = height / 2f - (point.y / depth) * focal
+        return Offset(sx, sy)
+    }
     val camera = frame.camera ?: return null
     if (camera.trackingState != com.google.ar.core.TrackingState.TRACKING) return null
 
@@ -120,7 +143,48 @@ private fun projectPoint3DToScreen(
     camera.getViewMatrix(viewMatrix, 0)
     camera.getProjectionMatrix(projMatrix, 0, 0.1f, 100f)
 
-    val worldPos = floatArrayOf(point.x.toFloat(), point.y.toFloat(), point.z.toFloat(), 1.0f)
+    val worldPos = floatArrayOf(point.x, point.y, point.z, 1.0f)
+    val viewPos = FloatArray(4)
+    Matrix.multiplyMV(viewPos, 0, viewMatrix, 0, worldPos, 0)
+
+    if (viewPos[2] > -0.05f) return null
+
+    val clipPos = FloatArray(4)
+    Matrix.multiplyMV(clipPos, 0, projMatrix, 0, viewPos, 0)
+
+    if (clipPos[3] == 0f) return null
+
+    val ndcX = clipPos[0] / clipPos[3]
+    val ndcY = clipPos[1] / clipPos[3]
+
+    val screenX = (ndcX + 1.0f) / 2.0f * width
+    val screenY = (1.0f - ndcY) / 2.0f * height
+
+    return Offset(screenX, screenY)
+}
+
+private fun projectPointCloudPointToScreen(
+    point: PointCloudPoint,
+    frame: com.google.ar.core.Frame?,
+    width: Float,
+    height: Float
+): Offset? {
+    if (frame == null) {
+        val focal = width * 0.85f
+        val depth = (-point.z).coerceAtLeast(0.1f)
+        val sx = width / 2f + (point.x / depth) * focal
+        val sy = height / 2f - (point.y / depth) * focal
+        return Offset(sx, sy)
+    }
+    val camera = frame.camera ?: return null
+    if (camera.trackingState != com.google.ar.core.TrackingState.TRACKING) return null
+
+    val viewMatrix = FloatArray(16)
+    val projMatrix = FloatArray(16)
+    camera.getViewMatrix(viewMatrix, 0)
+    camera.getProjectionMatrix(projMatrix, 0, 0.1f, 100f)
+
+    val worldPos = floatArrayOf(point.x, point.y, point.z, 1.0f)
     val viewPos = FloatArray(4)
     Matrix.multiplyMV(viewPos, 0, viewMatrix, 0, worldPos, 0)
 
@@ -147,6 +211,7 @@ fun MeasureScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
     val mode by viewModel.mode.collectAsStateWithLifecycle()
     val points by viewModel.points.collectAsStateWithLifecycle()
     val selectedPlane by viewModel.selectedPlane.collectAsStateWithLifecycle()
@@ -157,13 +222,23 @@ fun MeasureScreen(
     val showCalibrationDialog by viewModel.showCalibrationDialog.collectAsStateWithLifecycle()
     val showSaveDialog by viewModel.showSaveDialog.collectAsStateWithLifecycle()
 
+    val pointCloud by viewModel.pointCloud.collectAsStateWithLifecycle()
+    val pointCloudColorMap by viewModel.pointCloudColorMap.collectAsStateWithLifecycle()
+    val is3DViewerMode by viewModel.is3DViewerMode.collectAsStateWithLifecycle()
+    val boundingBox3D by viewModel.boundingBox3D.collectAsStateWithLifecycle()
+
     var saveTitleInput by remember { mutableStateOf("") }
     var heightSliderValue by remember(heightMeters) { mutableFloatStateOf(heightMeters.toFloat()) }
     var customRefInput by remember { mutableStateOf("1.00") }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     
-    // Onboarding State
-    var showOnboarding by remember { mutableStateOf(true) }
+    // Interactive 3D Scan Guidance State (loaded automatically on first camera launch)
+    val sharedPrefs = remember(context) {
+        context.getSharedPreferences("metrax_ar_prefs", Context.MODE_PRIVATE)
+    }
+    var showScanGuide by remember {
+        mutableStateOf(!sharedPrefs.getBoolean("has_completed_scan_guide", false))
+    }
     val textMeasurer = rememberTextMeasurer()
 
     val calculatedValue = viewModel.calculateCurrentValue()
@@ -173,23 +248,23 @@ fun MeasureScreen(
     if (showClearHistoryDialog) {
         AlertDialog(
             onDismissRequest = { showClearHistoryDialog = false },
-            title = { Text("Borrar historial", fontWeight = FontWeight.Bold) },
-            text = { Text("¿Estás seguro de que querés borrar todas las mediciones guardadas en el historial?") },
+            title = { Text(strings.deleteConfirmTitle, fontWeight = FontWeight.Bold) },
+            text = { Text(strings.deleteConfirmMessage) },
             confirmButton = {
                 Button(
                     onClick = {
                         viewModel.clearAllHistory()
                         showClearHistoryDialog = false
-                        Toast.makeText(context, "Historial borrado", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.clearAll, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Borrar todo", color = Color.White)
+                    Text(strings.delete, color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearHistoryDialog = false }) {
-                    Text("Cancelar")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -282,7 +357,7 @@ fun MeasureScreen(
             onDismissRequest = { viewModel.setShowSaveDialog(false) },
             title = {
                 Text(
-                    text = "Guardar medición",
+                    text = strings.saveMeasurement,
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
             },
@@ -290,10 +365,10 @@ fun MeasureScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         text = when (mode) {
-                            MeasurementMode.DISTANCE -> "Distancia: " + GeometryUtils.formatLength(calculatedValue, unitSystem)
-                            MeasurementMode.AREA -> "Área: " + GeometryUtils.formatArea(calculatedValue, unitSystem)
-                            MeasurementMode.VOLUME -> "Volumen: " + GeometryUtils.formatVolume(calculatedValue, unitSystem) +
-                                    "\n(Área base: ${GeometryUtils.formatArea(currentArea, unitSystem)}, Altura: ${GeometryUtils.formatLength(heightMeters, unitSystem)})"
+                            MeasurementMode.DISTANCE -> "${strings.modeDistanceTitle.split(" ")[0]}: " + GeometryUtils.formatLength(calculatedValue, unitSystem)
+                            MeasurementMode.AREA -> "${strings.modeAreaTitle.split(" ")[0]}: " + GeometryUtils.formatArea(calculatedValue, unitSystem)
+                            MeasurementMode.VOLUME -> "${strings.modeVolumeTitle.split(" ")[0]}: " + GeometryUtils.formatVolume(calculatedValue, unitSystem) +
+                                    "\n(${strings.baseArea}: ${GeometryUtils.formatArea(currentArea, unitSystem)}, ${strings.heightText}: ${GeometryUtils.formatLength(heightMeters, unitSystem)})"
                         },
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontWeight = FontWeight.SemiBold,
@@ -307,7 +382,7 @@ fun MeasureScreen(
                     OutlinedTextField(
                         value = saveTitleInput,
                         onValueChange = { saveTitleInput = it },
-                        label = { Text("Etiqueta / Nota (ej. Tanque de agua)") },
+                        label = { Text(strings.saveTitle) },
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -320,7 +395,7 @@ fun MeasureScreen(
                     onClick = {
                         viewModel.saveMeasurement(saveTitleInput)
                         saveTitleInput = ""
-                        Toast.makeText(context, "Medición guardada en el historial", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.save, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = when (mode) {
@@ -331,12 +406,12 @@ fun MeasureScreen(
                     ),
                     modifier = Modifier.testTag("btn_confirm_save")
                 ) {
-                    Text("Guardar", color = Color.White)
+                    Text(strings.save, color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.setShowSaveDialog(false) }) {
-                    Text("Cancelar")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -404,24 +479,35 @@ fun MeasureScreen(
                         }
 
                         if (isScanning && mode == MeasurementMode.VOLUME) {
-                            val pointCloud = frame.acquirePointCloud()
-                            val pointsBuffer = pointCloud.points
-                            val numPoints = pointsBuffer.limit() / 4
-                            
-                            if (numPoints > 0) {
-                                val step = (numPoints / 10).coerceAtLeast(1)
-                                for (i in 0 until numPoints step step) {
-                                    val x = pointsBuffer.get(i * 4)
-                                    val y = pointsBuffer.get(i * 4 + 1)
-                                    val z = pointsBuffer.get(i * 4 + 2)
-                                    val confidence = pointsBuffer.get(i * 4 + 3)
-                                    
-                                    if (confidence > 0.5f) {
-                                        viewModel.addPoint(Point3D(x, y, z))
+                            try {
+                                val pointCloudAr = frame.acquirePointCloud()
+                                val pointsBuffer = pointCloudAr.points
+                                val numPoints = pointsBuffer.limit() / 4
+                                
+                                if (numPoints > 0) {
+                                    val newPoints = ArrayList<PointCloudPoint>()
+                                    val step = (numPoints / 50).coerceIn(1, 10)
+                                    for (i in 0 until numPoints step step) {
+                                        val x = pointsBuffer.get(i * 4)
+                                        val y = pointsBuffer.get(i * 4 + 1)
+                                        val z = pointsBuffer.get(i * 4 + 2)
+                                        val confidence = pointsBuffer.get(i * 4 + 3)
+                                        
+                                        if (confidence > 0.2f) {
+                                            val dx = x - pose.tx()
+                                            val dy = y - pose.ty()
+                                            val dz = z - pose.tz()
+                                            val depth = sqrt(dx * dx + dy * dy + dz * dz)
+                                            val hue = ((depth - 0.3f) / 2.5f).coerceIn(0f, 1f)
+                                            newPoints.add(PointCloudPoint(x, y, z, confidence, depth, hue))
+                                        }
+                                    }
+                                    if (newPoints.isNotEmpty()) {
+                                        viewModel.addPointCloudPoints(newPoints)
                                     }
                                 }
-                            }
-                            pointCloud.release()
+                                pointCloudAr.release()
+                            } catch (e: Exception) { }
                         }
                     }
 
@@ -457,15 +543,59 @@ fun MeasureScreen(
         )
         } else if (isArInstalled == false) {
             Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF070B14))
             ) {
-                Text(
-                    text = "Google Play Services for AR (ARCore) no está instalado. Instalalo desde la Play Store para usar esta función.",
-                    color = Color.White,
-                    modifier = Modifier.padding(32.dp),
-                    textAlign = TextAlign.Center
-                )
+                // Background subtle simulation spatial grid
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val step = 45.dp.toPx()
+                    val cols = (size.width / step).toInt()
+                    val rows = (size.height / step).toInt()
+                    for (x in 0..cols) {
+                        drawLine(
+                            color = Color(0xFF1E293B).copy(alpha = 0.3f),
+                            start = Offset(x * step, 0f),
+                            end = Offset(x * step, size.height),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                    for (y in 0..rows) {
+                        drawLine(
+                            color = Color(0xFF1E293B).copy(alpha = 0.3f),
+                            start = Offset(0f, y * step),
+                            end = Offset(size.width, y * step),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                    border = BorderStroke(1.dp, PrimaryAmber.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 70.dp, start = 20.dp, end = 20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ViewInAr,
+                            contentDescription = null,
+                            tint = PrimaryAmber,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Modo Simulación LiDAR (ARCore no detectado)",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = PrimaryAmber
+                        )
+                    }
+                }
             }
         }
 
@@ -863,12 +993,111 @@ fun MeasureScreen(
                     style = Stroke(width = 6.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round)
                 )
             }
+
+            // --- 3D LIDAR POINT CLOUD RENDERING FOR VOLUME / SCAN MODE ---
+            if (mode == MeasurementMode.VOLUME && pointCloud.isNotEmpty()) {
+                val step = (pointCloud.size / 600).coerceAtLeast(1)
+                for (i in 0 until pointCloud.size step step) {
+                    val pt = pointCloud[i]
+                    val screenPos = projectPointCloudPointToScreen(pt, latestFrame, size.width, size.height)
+                    if (screenPos != null) {
+                        val ptColor = GeometryUtils.getColorForPoint(pt, pointCloudColorMap)
+                        val radius = (2.5f * pt.confidence).coerceIn(1.5f, 5.0f).dp.toPx()
+                        // Glowing laser halo
+                        drawCircle(
+                            color = ptColor.copy(alpha = 0.35f),
+                            radius = radius * 2.2f,
+                            center = screenPos
+                        )
+                        // Laser core
+                        drawCircle(
+                            color = ptColor,
+                            radius = radius,
+                            center = screenPos
+                        )
+                    }
+                }
+
+                // Render 3D Wireframe Bounding Box in AR
+                boundingBox3D?.let { box ->
+                    fun proj(x: Float, y: Float, z: Float) =
+                        projectPointCloudPointToScreen(PointCloudPoint(x, y, z), latestFrame, size.width, size.height)
+
+                    val c000 = proj(box.minX, box.minY, box.minZ)
+                    val c100 = proj(box.maxX, box.minY, box.minZ)
+                    val c110 = proj(box.maxX, box.maxY, box.minZ)
+                    val c010 = proj(box.minX, box.maxY, box.minZ)
+
+                    val c001 = proj(box.minX, box.minY, box.maxZ)
+                    val c101 = proj(box.maxX, box.minY, box.maxZ)
+                    val c111 = proj(box.maxX, box.maxY, box.maxZ)
+                    val c011 = proj(box.minX, box.maxY, box.maxZ)
+
+                    fun drawWireEdge(p1: Offset?, p2: Offset?, color: Color = AccentEmerald) {
+                        if (p1 != null && p2 != null) {
+                            drawLine(
+                                color = color.copy(alpha = 0.85f),
+                                start = p1,
+                                end = p2,
+                                strokeWidth = 2.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f)
+                            )
+                        }
+                    }
+
+                    // Bottom face
+                    drawWireEdge(c000, c100)
+                    drawWireEdge(c100, c101)
+                    drawWireEdge(c101, c001)
+                    drawWireEdge(c001, c000)
+
+                    // Top face
+                    drawWireEdge(c010, c110)
+                    drawWireEdge(c110, c111)
+                    drawWireEdge(c111, c011)
+                    drawWireEdge(c011, c010)
+
+                    // Vertical pillars
+                    drawWireEdge(c000, c010)
+                    drawWireEdge(c100, c110)
+                    drawWireEdge(c101, c111)
+                    drawWireEdge(c001, c011)
+
+                    listOfNotNull(c000, c100, c110, c010, c001, c101, c111, c011).forEach { corner ->
+                        drawCircle(PrimaryAmber, radius = 4.dp.toPx(), center = corner)
+                    }
+                }
+            }
+
+            // Real-time laser sweep scanner animation when actively scanning
+            if (isScanning && mode == MeasurementMode.VOLUME) {
+                val scanLineY = (System.currentTimeMillis() % 2200L) / 2200f * size.height
+                drawLine(
+                    color = AccentEmerald,
+                    start = Offset(0f, scanLineY),
+                    end = Offset(size.width, scanLineY),
+                    strokeWidth = 2.5.dp.toPx()
+                )
+                drawRect(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            AccentEmerald.copy(alpha = 0.35f),
+                            Color.Transparent
+                        ),
+                        startY = scanLineY,
+                        endY = scanLineY + 80.dp.toPx()
+                    ),
+                    topLeft = Offset(0f, scanLineY),
+                    size = Size(size.width, 80.dp.toPx())
+                )
+            }
         }
 
         // 3. Top Header Controls Overlay with TopAppBar
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 640.dp)
                 .align(Alignment.TopCenter)
                 .padding(top = 28.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -891,6 +1120,11 @@ fun MeasureScreen(
                                 MeasurementMode.DISTANCE -> PrimaryAmber
                                 MeasurementMode.AREA -> SecondaryCyan
                                 MeasurementMode.VOLUME -> AccentEmerald
+                            }
+                            val modeText = when (m) {
+                                MeasurementMode.DISTANCE -> strings.modeDistanceTitle.split(" ")[0]
+                                MeasurementMode.AREA -> strings.modeAreaTitle.split(" ")[0]
+                                MeasurementMode.VOLUME -> strings.modeVolumeTitle.split(" ")[0]
                             }
                             Box(
                                 modifier = Modifier
@@ -917,7 +1151,7 @@ fun MeasureScreen(
                                     )
                                     if (active) {
                                         Text(
-                                            text = m.label,
+                                            text = modeText,
                                             style = MaterialTheme.typography.labelMedium.copy(
                                                 fontWeight = FontWeight.Bold
                                             ),
@@ -940,7 +1174,7 @@ fun MeasureScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver",
+                            contentDescription = strings.back,
                             tint = Color.White
                         )
                     }
@@ -964,6 +1198,24 @@ fun MeasureScreen(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
+                    // Help & 3D Scan Precision Guide Button
+                    IconButton(
+                        onClick = { showScanGuide = true },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .testTag("btn_open_scan_guide")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = strings.scanGuideHelpTooltip,
+                            tint = PrimaryAmber
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
                     // Delete Sweep button to Clear History
                     IconButton(
                         onClick = { showClearHistoryDialog = true },
@@ -975,7 +1227,7 @@ fun MeasureScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = "Borrar historial",
+                            contentDescription = strings.clearAll,
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -1008,10 +1260,45 @@ fun MeasureScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Calibración: ${calibrationPreset.displayName.split(" ")[0]}",
+                            text = "${strings.calibration}: ${calibrationPreset.displayName.split(" ")[0]}",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp),
                             color = Color.White
                         )
+                    }
+                }
+
+                if (mode == MeasurementMode.VOLUME) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color.Black.copy(alpha = 0.75f),
+                        border = BorderStroke(1.dp, AccentEmerald),
+                        modifier = Modifier
+                            .clickable {
+                                if (pointCloud.isEmpty()) {
+                                    viewModel.generateSimulatedPointCloud()
+                                }
+                                viewModel.set3DViewerMode(true)
+                            }
+                            .testTag("btn_quick_open_3d_viewer")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ViewInAr,
+                                contentDescription = null,
+                                tint = AccentEmerald,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "🧊 ${strings.pointCloudViewer} (${pointCloud.size} pts)",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp),
+                                color = AccentEmerald
+                            )
+                        }
                     }
                 }
             }
@@ -1022,6 +1309,7 @@ fun MeasureScreen(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .widthIn(max = 640.dp)
                     .padding(top = 135.dp, start = 20.dp, end = 20.dp)
             ) {
                 Card(
@@ -1044,7 +1332,7 @@ fun MeasureScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Altura / Profundidad: " + GeometryUtils.formatLength(heightMeters, unitSystem),
+                                text = "${strings.heightText}: " + GeometryUtils.formatLength(heightMeters, unitSystem),
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
@@ -1086,7 +1374,7 @@ fun MeasureScreen(
                                 ) {
                                     Column {
                                         Text(
-                                            text = "Material",
+                                            text = strings.material,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Slate400
                                         )
@@ -1177,6 +1465,7 @@ fun MeasureScreen(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .widthIn(max = 640.dp)
                     .padding(top = if (mode == MeasurementMode.VOLUME) 340.dp else 140.dp, start = 20.dp, end = 20.dp)
             ) {
                 Surface(
@@ -1185,15 +1474,10 @@ fun MeasureScreen(
                 ) {
                     Text(
                         text = when {
-                            points.isEmpty() -> if (mode == MeasurementMode.DISTANCE)
-                                "Tocá la pantalla para añadir un punto"
-                            else if (mode == MeasurementMode.AREA)
-                                "Tocá la pantalla para delimitar área"
-                            else
-                                "Calculá áreas y ajustá su altura"
-                            points.size < mode.minPoints -> "Agregá más puntos para ${mode.label.lowercase()}."
-                            mode == MeasurementMode.AREA -> "✅ Superficie cerrada. Continuar o guardar."
-                            else -> "¡Cálculo en vivo! Continuar o guardar."
+                            points.isEmpty() -> strings.pointInstruction
+                            points.size < mode.minPoints -> "${strings.addPoint}: ${points.size}/${mode.minPoints}"
+                            mode == MeasurementMode.AREA -> strings.surfaceClosed
+                            else -> strings.ready
                         },
                         style = MaterialTheme.typography.bodySmall.copy(textAlign = TextAlign.Center),
                         color = Color.White,
@@ -1233,6 +1517,7 @@ fun MeasureScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 640.dp)
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp),
@@ -1269,9 +1554,9 @@ fun MeasureScreen(
                     ) {
                         Text(
                             text = when (mode) {
-                                MeasurementMode.DISTANCE -> "Distancia Total"
-                                MeasurementMode.AREA -> "Área Calculada"
-                                MeasurementMode.VOLUME -> "Volumen Estimado"
+                                MeasurementMode.DISTANCE -> strings.totalDistance
+                                MeasurementMode.AREA -> strings.calculatedArea
+                                MeasurementMode.VOLUME -> strings.estimatedVolume
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = Color.LightGray
@@ -1307,7 +1592,7 @@ fun MeasureScreen(
                             )
                             
                             Text(
-                                text = "Área base: ${GeometryUtils.formatArea(currentArea, unitSystem)} | Altura: ${GeometryUtils.formatLength(heightMeters, unitSystem)}",
+                                text = "${strings.baseArea}: ${GeometryUtils.formatArea(currentArea, unitSystem)} | ${strings.heightText}: ${GeometryUtils.formatLength(heightMeters, unitSystem)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.LightGray,
                                 modifier = Modifier.padding(top = 4.dp)
@@ -1321,9 +1606,9 @@ fun MeasureScreen(
             if (mode == MeasurementMode.DISTANCE) {
                 Text(
                     text = when (points.size) {
-                        0 -> "Ubique el Punto de Partida"
-                        1 -> "Punto de Partida fijado. Caminá al Punto Final"
-                        else -> "Punto de Partida y Punto Final fijados"
+                        0 -> strings.locateStartingPoint
+                        1 -> strings.pointSetWalkToEnd
+                        else -> strings.bothPointsSet
                     },
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
@@ -1335,24 +1620,27 @@ fun MeasureScreen(
             }
 
             // Action Buttons Bar
-            if (isArInstalled == true) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                // Primary 'Añadir Punto' / 'Escanear' Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Primary Action Buttons for VOLUME / 3D Mode
                 if (mode == MeasurementMode.VOLUME) {
+                    // 1. Scan 3D / Stop Scan Button
                     Button(
                         onClick = { 
                             if (isScanning || countdownValue != null) {
                                 isScanning = false
                                 countdownValue = null
                             } else {
-                                countdownValue = 3
+                                countdownValue = 2
+                                if (pointCloud.isEmpty()) {
+                                    viewModel.generateSimulatedPointCloud()
+                                }
                             }
                         },
                         modifier = Modifier
-                            .weight(1.2f)
+                            .weight(1.3f)
                             .height(52.dp)
                             .testTag("btn_scan"),
                         shape = RoundedCornerShape(14.dp),
@@ -1360,10 +1648,104 @@ fun MeasureScreen(
                             containerColor = if (isScanning || countdownValue != null) AccentEmerald else PrimaryAmber
                         )
                     ) {
+                        Icon(
+                            imageVector = if (isScanning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isScanning) "Detener Escaneo" else if (countdownValue != null) "Preparando..." else "Escanear 3D",
+                            text = if (isScanning) strings.stopScan else if (countdownValue != null) strings.preparingScan else strings.scan3D,
                             color = Color.Black,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    // 2. Open 3D Viewer Button
+                    Button(
+                        onClick = {
+                            if (pointCloud.isEmpty()) {
+                                viewModel.generateSimulatedPointCloud()
+                            }
+                            viewModel.set3DViewerMode(true)
+                        },
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(52.dp)
+                            .testTag("btn_open_3d_viewer"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0284C7)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ViewInAr,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = strings.pointCloudViewer,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    // 3. Clear Cloud Button
+                    Button(
+                        onClick = {
+                            viewModel.clearPointCloud()
+                            viewModel.resetPoints()
+                        },
+                        enabled = pointCloud.isNotEmpty() || points.isNotEmpty(),
+                        modifier = Modifier
+                            .weight(0.7f)
+                            .height(52.dp)
+                            .testTag("btn_clear_cloud"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.18f),
+                            disabledContainerColor = Color.White.copy(alpha = 0.06f)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RestartAlt,
+                            contentDescription = strings.reset,
+                            tint = if (pointCloud.isNotEmpty() || points.isNotEmpty()) Color.White else Color.Gray,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // 4. Save Button
+                    Button(
+                        onClick = { viewModel.setShowSaveDialog(true) },
+                        enabled = calculatedValue > 0.0 || pointCloud.isNotEmpty(),
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .height(52.dp)
+                            .testTag("btn_save_measurement"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentEmerald,
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = strings.save,
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = strings.save,
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
                         )
                     }
                 } else {
@@ -1415,7 +1797,7 @@ fun MeasureScreen(
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Añadir Punto", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(strings.addPoint, color = Color.Black, fontWeight = FontWeight.Bold)
                     }
 
                     // Undo Button
@@ -1434,83 +1816,112 @@ fun MeasureScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Undo,
-                            contentDescription = "Deshacer",
+                            contentDescription = strings.undo,
                             tint = if (points.isNotEmpty()) Color.White else Color.Gray,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Deshacer", color = if (points.isNotEmpty()) Color.White else Color.Gray)
+                        Text(strings.undo, color = if (points.isNotEmpty()) Color.White else Color.Gray)
                     }
-                }
 
-                // Reset Button
-                Button(
-                    onClick = { viewModel.resetPoints() },
-                    enabled = points.isNotEmpty(),
-                    modifier = Modifier
-                        .weight(0.9f)
-                        .height(52.dp)
-                        .testTag("btn_reset"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White.copy(alpha = 0.18f),
-                        disabledContainerColor = Color.White.copy(alpha = 0.06f)
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.RestartAlt,
-                        contentDescription = "Reiniciar",
-                        tint = if (points.isNotEmpty()) Color.White else Color.Gray,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                    // Reset Button
+                    Button(
+                        onClick = { viewModel.resetPoints() },
+                        enabled = points.isNotEmpty(),
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .height(52.dp)
+                            .testTag("btn_reset"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.18f),
+                            disabledContainerColor = Color.White.copy(alpha = 0.06f)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RestartAlt,
+                            contentDescription = strings.reset,
+                            tint = if (points.isNotEmpty()) Color.White else Color.Gray,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
 
-                // Save Button
-                Button(
-                    onClick = { viewModel.setShowSaveDialog(true) },
-                    enabled = calculatedValue > 0.0,
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .height(52.dp)
-                        .testTag("btn_save_measurement"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = when (mode) {
-                            MeasurementMode.DISTANCE -> PrimaryAmber
-                            MeasurementMode.AREA -> SecondaryCyan
-                            MeasurementMode.VOLUME -> AccentEmerald
-                        },
-                        disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = "Guardar",
-                        tint = if (mode == MeasurementMode.DISTANCE) Color.White else Color.Black,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Guardar",
-                        color = if (mode == MeasurementMode.DISTANCE) Color.White else Color.Black,
-                        fontWeight = FontWeight.Bold
-                    )
+                    // Save Button
+                    Button(
+                        onClick = { viewModel.setShowSaveDialog(true) },
+                        enabled = calculatedValue > 0.0,
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .height(52.dp)
+                            .testTag("btn_save_measurement"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = when (mode) {
+                                MeasurementMode.DISTANCE -> PrimaryAmber
+                                MeasurementMode.AREA -> SecondaryCyan
+                                MeasurementMode.VOLUME -> AccentEmerald
+                            },
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = strings.save,
+                            tint = if (mode == MeasurementMode.DISTANCE) Color.White else Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = strings.save,
+                            color = if (mode == MeasurementMode.DISTANCE) Color.White else Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
-    }
-    
-    // Onboarding Overlay
-        if (showOnboarding) {
-            AROnboardingOverlay(
-                onDismiss = { showOnboarding = false }
+
+        // 7. Full-Screen Interactive 3D Point Cloud Inspector
+        if (is3DViewerMode && mode == MeasurementMode.VOLUME) {
+            PointCloudViewer3D(
+                points = pointCloud,
+                boundingBox = boundingBox3D,
+                colorMap = pointCloudColorMap,
+                onColorMapChange = { viewModel.setPointCloudColorMap(it) },
+                unitSystem = unitSystem,
+                scaleFactor = scaleFactor,
+                onCloseViewer = { viewModel.set3DViewerMode(false) },
+                onExportPly = {
+                    val plyText = GeometryUtils.generatePlyPointCloud(pointCloud)
+                    val sendIntent = android.content.Intent().apply {
+                        action = android.content.Intent.ACTION_SEND
+                        putExtra(android.content.Intent.EXTRA_TEXT, plyText)
+                        type = "text/plain"
+                    }
+                    context.startActivity(
+                        android.content.Intent.createChooser(sendIntent, "Exportar Nube de Puntos PLY")
+                    )
+                }
             )
         }
+    }
+    
+    // Interactive 3D Surface Scanning Guidance Overlay
+    if (showScanGuide) {
+        ScanGuidanceOverlay(
+            onDismiss = { dontShowAgain ->
+                showScanGuide = false
+                if (dontShowAgain) {
+                    sharedPrefs.edit().putBoolean("has_completed_scan_guide", true).apply()
+                }
+            }
+        )
     }
 }
 
 @Composable
 fun AROnboardingOverlay(onDismiss: () -> Unit) {
+    val strings = LocalAppStrings.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1522,7 +1933,9 @@ fun AROnboardingOverlay(onDismiss: () -> Unit) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 520.dp)
         ) {
             // Animated or static icon representing phone scanning
             Icon(
@@ -1535,7 +1948,7 @@ fun AROnboardingOverlay(onDismiss: () -> Unit) {
             )
             
             Text(
-                text = "Mapeando Entorno",
+                text = strings.mappingEnvironment,
                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                 color = Color.White,
                 textAlign = TextAlign.Center
@@ -1544,7 +1957,7 @@ fun AROnboardingOverlay(onDismiss: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "Mueve tu teléfono lentamente de lado a lado apuntando a las superficies que deseas medir para que el sistema las detecte.",
+                text = strings.mappingEnvironmentDesc,
                 style = MaterialTheme.typography.bodyLarge,
                 color = Slate400,
                 textAlign = TextAlign.Center,
@@ -1562,7 +1975,7 @@ fun AROnboardingOverlay(onDismiss: () -> Unit) {
                     .height(56.dp)
             ) {
                 Text(
-                    text = "Entendido",
+                    text = strings.understood,
                     color = Color.Black,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium

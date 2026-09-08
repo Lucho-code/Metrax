@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,6 +95,12 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.CheckCircle
+import com.example.util.AppLanguage
+import com.example.util.LanguageManager
+import com.example.util.LocalAppStrings
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -105,6 +112,8 @@ fun HomeScreen(
     onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val currentLanguage by LanguageManager.currentLanguage.collectAsStateWithLifecycle()
     val historyItems by viewModel.historyList.collectAsStateWithLifecycle()
     val currentUser by (authViewModel?.currentUser ?: MutableStateFlow<User?>(null)).collectAsStateWithLifecycle()
     val currentMode by viewModel.mode.collectAsStateWithLifecycle()
@@ -113,6 +122,7 @@ fun HomeScreen(
     val scrollState = rememberScrollState()
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -122,6 +132,81 @@ fun HomeScreen(
     val areaCount = historyItems.count { it.mode == MeasurementMode.AREA.name }
     val volumeCount = historyItems.count { it.mode == MeasurementMode.VOLUME.name }
 
+    // Language Selector Dialog
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            containerColor = DarkSurface,
+            title = {
+                Text(
+                    text = strings.selectLanguage,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AppLanguage.entries.forEach { lang ->
+                        val isSelected = lang == currentLanguage
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    LanguageManager.setLanguage(context, lang)
+                                    showLanguageDialog = false
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) PrimaryAmber.copy(alpha = 0.15f) else Color.Transparent,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) PrimaryAmber else DarkBorder
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text(
+                                        text = lang.flagEmoji,
+                                        style = MaterialTheme.typography.titleLarge
+                                    )
+                                    Text(
+                                        text = lang.displayName,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Selected",
+                                        tint = PrimaryAmber,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) {
+                    Text(strings.close, color = PrimaryAmber, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
     // Clear History Confirmation Dialog
     if (showClearHistoryDialog) {
         AlertDialog(
@@ -129,23 +214,23 @@ fun HomeScreen(
             containerColor = DarkSurface,
             titleContentColor = Color.White,
             textContentColor = Slate400,
-            title = { Text("Borrar historial", fontWeight = FontWeight.Bold) },
+            title = { Text(strings.clearAll, fontWeight = FontWeight.Bold) },
             text = { Text("¿Estás seguro de que deseas eliminar todas las mediciones guardadas?") },
             confirmButton = {
                 Button(
                     onClick = {
                         viewModel.clearAllHistory()
                         showClearHistoryDialog = false
-                        Toast.makeText(context, "Historial borrado", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.clearAll, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Eliminar todo", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(strings.delete, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearHistoryDialog = false }) {
-                    Text("Cancelar", color = Slate400)
+                    Text(strings.cancel, color = Slate400)
                 }
             }
         )
@@ -254,8 +339,8 @@ fun HomeScreen(
                 }
                 
                 // Other Options
-                val menuItems = listOf(
-                    "Ajustes" to Icons.Default.Settings
+                val menuItems: List<Pair<String, androidx.compose.ui.graphics.vector.ImageVector>> = listOf(
+                    strings.settings to Icons.Default.Settings
                 )
 
                 menuItems.forEach { (label, icon) ->
@@ -264,7 +349,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .clickable {
                                 scope.launch { drawerState.close() }
-                                if (label == "Ajustes") {
+                                if (label == strings.settings || label == "Settings") {
                                     onNavigateToSettings()
                                 }
                             }
@@ -292,14 +377,54 @@ fun HomeScreen(
                     }
                     HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                 }
+
+                // Language Option in Drawer
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch { drawerState.close() }
+                            showLanguageDialog = true
+                        }
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Language,
+                        contentDescription = strings.language,
+                        modifier = Modifier.size(24.dp),
+                        tint = PrimaryAmber
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = strings.language,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.Black,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${currentLanguage.flagEmoji} ${currentLanguage.displayName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = Slate400
+                        )
+                    }
+                }
+                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // Footer Options
                 val footerItems = listOf(
-                    "Política de Privacidad",
-                    "Acuerdo del Cliente",
-                    "Cerrar Sesión"
+                    strings.drawerPrivacy,
+                    strings.drawerTerms,
+                    strings.logout
                 )
 
                 footerItems.forEach { label ->
@@ -308,7 +433,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .clickable {
                                 scope.launch { drawerState.close() }
-                                if (label == "Cerrar Sesión") {
+                                if (label == strings.logout || label == "Log Out") {
                                     authViewModel?.logout()
                                     onLogout()
                                 }
@@ -322,7 +447,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = Slate400
                         )
-                        if (label != "Cerrar Sesión") {
+                        if (label != strings.logout && label != "Log Out") {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = null,
@@ -367,7 +492,7 @@ fun HomeScreen(
                                     color = Color.White
                                 )
                                 Text(
-                                    text = "SISTEMA AR DE MEDICIÓN",
+                                    text = strings.welcomeSubtitle,
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
@@ -378,13 +503,41 @@ fun HomeScreen(
                         }
                     },
                     actions = {
+                        // Quick Language Switcher Button
+                        IconButton(
+                            onClick = { showLanguageDialog = true },
+                            modifier = Modifier.testTag("topbar_home_language")
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = DarkSurfaceVariant,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Text(text = currentLanguage.flagEmoji, fontSize = 12.sp)
+                                    Text(
+                                        text = currentLanguage.code.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
                         IconButton(
                             onClick = onNavigateToHistory,
                             modifier = Modifier.testTag("topbar_home_history")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.History,
-                                contentDescription = "Historial",
+                                contentDescription = strings.history,
                                 tint = Color.White
                             )
                         }
@@ -396,7 +549,7 @@ fun HomeScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.DeleteSweep,
-                                    contentDescription = "Borrar historial",
+                                    contentDescription = strings.clearAll,
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -427,11 +580,13 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
+                .background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.TopCenter
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .widthIn(max = 640.dp) // Responsive tablet & foldable layout
                     .verticalScroll(scrollState)
                     .padding(horizontal = 20.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -452,14 +607,14 @@ fun HomeScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Medición en Campo",
+                                text = strings.homeHeaderTitle,
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold
                                 ),
                                 color = Color.White
                             )
                             Text(
-                                text = "Cámara AR con detección de planos y fotogrametría 3D",
+                                text = strings.homeHeaderSubtitle,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Slate400
                             )
@@ -472,7 +627,7 @@ fun HomeScreen(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "LISTO",
+                                text = strings.ready,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = PrimaryAmber
@@ -487,7 +642,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "MODO DE MEDICIÓN",
+                        text = strings.modesTitle,
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
@@ -538,12 +693,12 @@ fun HomeScreen(
 
                                 Column {
                                     Text(
-                                        text = "Distancia (1D)",
+                                        text = strings.modeDistanceTitle,
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                         color = Color.White
                                     )
                                     Text(
-                                        text = "Longitud lineal entre 2 o más puntos",
+                                        text = strings.modeDistanceDesc,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Slate400
                                     )
@@ -602,12 +757,12 @@ fun HomeScreen(
 
                                 Column {
                                     Text(
-                                        text = "Superficie y Área (2D)",
+                                        text = strings.modeAreaTitle,
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                         color = Color.White
                                     )
                                     Text(
-                                        text = "Superficie de polígonos, techos o terrenos",
+                                        text = strings.modeAreaDesc,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Slate400
                                     )
@@ -666,12 +821,12 @@ fun HomeScreen(
 
                                 Column {
                                     Text(
-                                        text = "Volumen y Cubaje (3D)",
+                                        text = strings.modeVolumeTitle,
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                         color = Color.White
                                     )
                                     Text(
-                                        text = "Acopios, pilas de material, contenedores",
+                                        text = strings.modeVolumeDesc,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Slate400
                                     )
@@ -856,13 +1011,13 @@ fun HomeScreen(
 
                             Column {
                                 Text(
-                                    text = "Historial Registrado",
+                                    text = strings.actionHistory,
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = Color.White
                                 )
                                 Text(
-                                    text = if (totalSaved == 0) "Sin registros aún"
-                                    else "$totalSaved registros ($distanceCount dist, $areaCount áreas, $volumeCount vol)",
+                                    text = if (totalSaved == 0) strings.noMeasurementsYet
+                                    else "$totalSaved ($distanceCount ${strings.modeDistanceTitle.split(" ")[0]}, $areaCount ${strings.modeAreaTitle.split(" ")[0]}, $volumeCount ${strings.modeVolumeTitle.split(" ")[0]})",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = Slate400
                                 )
@@ -871,7 +1026,7 @@ fun HomeScreen(
 
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Ir al historial",
+                            contentDescription = strings.actionHistory,
                             tint = Slate400,
                             modifier = Modifier.size(18.dp)
                         )

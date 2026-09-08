@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/simple_measure_icon_1788862432629"
+        android:drawable="@drawable/simple_metrax_icon_1788865407387"
         android:gravity="center" />
 </layer-list>
