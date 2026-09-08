@@ -152,7 +152,11 @@ object VolumeCalculator {
         return result.copy(
             volumeCubicMeters = result.volumeCubicMeters * factor * factor * factor,
             baseAreaSquareMeters = result.baseAreaSquareMeters * factor * factor,
-            maxHeightMeters = result.maxHeightMeters * factor
+            maxHeightMeters = result.maxHeightMeters * factor,
+            // Heights scale linearly too, same as maxHeightMeters — otherwise the
+            // contour/heatmap preview (normalized against maxHeightMeters) would
+            // no longer agree with the corrected numbers shown next to it.
+            heightGrid = result.heightGrid.map { row -> row.map { (it * factor).toFloat() } }
         )
     }
 

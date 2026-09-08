@@ -243,7 +243,8 @@ fun ArMeasureScreen(
             onVolumeResult = arViewModel::onVolumeResult,
             onAvailabilityChanged = arViewModel::onAvailabilityChanged,
             onRendererReady = arViewModel::onRendererReady,
-            onGlSurfaceViewReady = { glSurfaceViewRef = it }
+            onGlSurfaceViewReady = { glSurfaceViewRef = it },
+            onComputeFailed = arViewModel::onComputeFailed
         )
 
         // Point cloud + toe polygon overlay. No pointer input here on purpose:

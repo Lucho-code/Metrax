@@ -3,7 +3,6 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -77,10 +76,16 @@ import com.example.ui.theme.SecondaryCyan
 import com.example.ui.theme.Slate400
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import com.example.util.PhotoStorage
 import com.example.util.ShareUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// Roughly covers a 46dp thumbnail up to ~2.6x density; BitmapFactory rounds
+// inSampleSize to the nearest power of two anyway, so this only needs to be
+// in the right ballpark to avoid decoding full-resolution photos per row.
+private const val THUMBNAIL_REQ_SIZE_PX = 120
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -389,7 +394,7 @@ private fun MeasurementCardItem(
                 modifier = Modifier.weight(1f)
             ) {
                 val thumbnailBitmap = remember(item.photoPath) {
-                    item.photoPath?.let { path -> BitmapFactory.decodeFile(path)?.asImageBitmap() }
+                    item.photoPath?.let { path -> PhotoStorage.decodeThumbnail(path, THUMBNAIL_REQ_SIZE_PX)?.asImageBitmap() }
                 }
                 if (thumbnailBitmap != null) {
                     Image(

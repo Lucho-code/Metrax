@@ -77,6 +77,11 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
         _isComputing.value = false
     }
 
+    /** Called when a volume-compute attempt fails (bad geometry, no depth samples, etc.) so the button doesn't stay stuck. */
+    fun onComputeFailed() {
+        _isComputing.value = false
+    }
+
     fun setCapturedPhotoPath(path: String?) {
         _capturedPhotoPath.value = path
     }

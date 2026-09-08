@@ -38,7 +38,8 @@ class ArVolumeRenderer(
     private val getDisplayRotation: () -> Int,
     private val onUiState: (ArFrameUiState) -> Unit,
     private val onToePointsChanged: () -> Unit,
-    private val onVolumeResult: (ArVolumeResult) -> Unit
+    private val onVolumeResult: (ArVolumeResult) -> Unit,
+    private val onComputeFailed: () -> Unit = {}
 ) : android.opengl.GLSurfaceView.Renderer {
 
     @Volatile
@@ -312,6 +313,7 @@ class ArVolumeRenderer(
     private fun handleComputeVolume(frame: Frame, gridResolution: Int) {
         if (toeAnchors.size < 3) {
             pendingMessage = "Marcá al menos 3 puntos en el contorno de la base antes de calcular el volumen."
+            onComputeFailed()
             return
         }
 
@@ -322,6 +324,7 @@ class ArVolumeRenderer(
 
         if (toeScreenPoints.size < 3) {
             pendingMessage = "Alejate hasta que se vean todos los puntos del contorno en pantalla."
+            onComputeFailed()
             return
         }
 
@@ -333,6 +336,7 @@ class ArVolumeRenderer(
         val stepY = (maxY - minY) / gridResolution
         if (stepX <= 0f || stepY <= 0f) {
             pendingMessage = "No se pudo medir el área: el contorno se ve demasiado pequeño en pantalla."
+            onComputeFailed()
             return
         }
 
@@ -354,6 +358,7 @@ class ArVolumeRenderer(
         val rawResult = VolumeCalculator.buildResult(toeWorldPoints, mesh, trackingRatio, gridResolution)
         if (rawResult == null) {
             pendingMessage = "No se pudo reconstruir suficiente superficie. Probá acercarte o mejorar la iluminación."
+            onComputeFailed()
             return
         }
         onVolumeResult(VolumeCalculator.applyLengthCorrection(rawResult, lengthCorrectionFactor))

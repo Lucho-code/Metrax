@@ -55,7 +55,8 @@ fun ArCameraView(
     onVolumeResult: (ArVolumeResult) -> Unit,
     onAvailabilityChanged: (ArAvailability) -> Unit,
     onRendererReady: (ArVolumeRenderer) -> Unit,
-    onGlSurfaceViewReady: (GLSurfaceView) -> Unit = {}
+    onGlSurfaceViewReady: (GLSurfaceView) -> Unit = {},
+    onComputeFailed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -93,7 +94,8 @@ fun ArCameraView(
             },
             onUiState = onUiState,
             onToePointsChanged = onToePointsChanged,
-            onVolumeResult = onVolumeResult
+            onVolumeResult = onVolumeResult,
+            onComputeFailed = onComputeFailed
         )
     }
     LaunchedEffect(renderer) { onRendererReady(renderer) }

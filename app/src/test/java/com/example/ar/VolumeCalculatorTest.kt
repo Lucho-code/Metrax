@@ -160,6 +160,24 @@ class VolumeCalculatorTest {
     }
 
     @Test
+    fun applyLengthCorrection_scalesHeightGridSoContourMapStaysConsistentWithCorrectedHeight() {
+        val result = com.example.data.model.ArVolumeResult(
+            volumeCubicMeters = 10.0,
+            baseAreaSquareMeters = 5.0,
+            maxHeightMeters = 2.0,
+            surfaceCoverageConfidence = 1.0f,
+            toeCoverageConfidence = 1.0f,
+            gridResolution = 20,
+            toePoints = emptyList(),
+            heightGrid = listOf(listOf(1.0f, 2.0f), listOf(0.5f, 1.5f))
+        )
+
+        val corrected = VolumeCalculator.applyLengthCorrection(result, 2.0)
+
+        assertEquals(listOf(listOf(2.0f, 4.0f), listOf(1.0f, 3.0f)), corrected.heightGrid)
+    }
+
+    @Test
     fun applyLengthCorrection_isNoOpForFactorOfOne() {
         val result = com.example.data.model.ArVolumeResult(
             volumeCubicMeters = 10.0,
