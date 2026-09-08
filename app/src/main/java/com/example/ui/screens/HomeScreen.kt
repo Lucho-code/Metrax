@@ -172,7 +172,7 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Menu",
+                            text = "Menú",
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color.Black
                         )
@@ -241,7 +241,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        text = "Subscribe",
+                        text = "Suscribirse",
                         style = MaterialTheme.typography.titleMedium,
                         color = PrimaryAmber,
                         modifier = Modifier.weight(1f)
@@ -255,17 +255,16 @@ fun HomeScreen(
                 
                 // Other Options
                 val menuItems = listOf(
-                    "Digital Cones" to Icons.Default.ViewInAr,
-                    "Settings" to Icons.Default.Settings
+                    "Ajustes" to Icons.Default.Settings
                 )
-                
+
                 menuItems.forEach { (label, icon) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 scope.launch { drawerState.close() }
-                                if (label == "Settings") {
+                                if (label == "Ajustes") {
                                     onNavigateToSettings()
                                 }
                             }
@@ -298,18 +297,18 @@ fun HomeScreen(
                 
                 // Footer Options
                 val footerItems = listOf(
-                    "Privacy Policy",
-                    "Customer Agreement",
-                    "Log Out"
+                    "Política de Privacidad",
+                    "Acuerdo del Cliente",
+                    "Cerrar Sesión"
                 )
-                
+
                 footerItems.forEach { label ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 scope.launch { drawerState.close() }
-                                if (label == "Log Out") {
+                                if (label == "Cerrar Sesión") {
                                     authViewModel?.logout()
                                     onLogout()
                                 }
@@ -323,7 +322,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = Slate400
                         )
-                        if (label != "Log Out") {
+                        if (label != "Cerrar Sesión") {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = null,

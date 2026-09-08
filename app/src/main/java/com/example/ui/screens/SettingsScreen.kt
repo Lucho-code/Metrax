@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,30 +18,51 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.UnitSystem
+import com.example.data.model.User
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PrimaryAmber
 import com.example.ui.theme.Slate400
 import com.example.ui.theme.Slate600
+import com.example.ui.viewmodel.AuthViewModel
+import com.example.ui.viewmodel.MeasurementViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onNavigateBack: () -> Unit
+    viewModel: MeasurementViewModel? = null,
+    authViewModel: AuthViewModel? = null,
+    onNavigateBack: () -> Unit,
+    onLogout: () -> Unit = {}
 ) {
     var hapticsEnabled by remember { mutableStateOf(true) }
     var soundEnabled by remember { mutableStateOf(false) }
     var highQualityMode by remember { mutableStateOf(true) }
     var showGrid by remember { mutableStateOf(true) }
 
+    val currentUser by (authViewModel?.currentUser ?: MutableStateFlow<User?>(null)).collectAsStateWithLifecycle()
+    val unitSystem by (viewModel?.unitSystem ?: MutableStateFlow(UnitSystem.METRIC)).collectAsStateWithLifecycle()
+
+    val initials = remember(currentUser) {
+        val name = currentUser?.name?.trim().orEmpty()
+        if (name.isBlank()) "IN" else name.split(" ")
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString("") { it.first().uppercase() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        "Settings",
+                        "Ajustes",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         color = Color.White
                     )
@@ -67,7 +89,7 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
         ) {
-            
+
             // Profile Section
             Box(
                 modifier = Modifier
@@ -75,7 +97,6 @@ fun SettingsScreen(
                     .padding(16.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(DarkSurface)
-                    .clickable { }
                     .padding(16.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -86,7 +107,7 @@ fun SettingsScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            "LR",
+                            initials,
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = Color.Black
                         )
@@ -94,96 +115,89 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Lucio Rostagno",
+                            text = currentUser?.name ?: "Invitado",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color.White
                         )
                         Text(
-                            text = "luciorostagno@gmail.com",
+                            text = currentUser?.email ?: "Sin cuenta iniciada",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Slate400
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit Profile",
-                        tint = Slate400
-                    )
                 }
             }
-            
-            SettingsCategoryTitle("MEASUREMENT")
-            
+
+            SettingsCategoryTitle("MEDICIÓN")
+
             SettingsItem(
-                title = "Unit System",
-                subtitle = "Metric (m, cm)",
+                title = "Sistema de Unidades",
+                subtitle = if (unitSystem == UnitSystem.METRIC) "Métrico (m, cm)" else "Imperial (ft, in)",
                 icon = Icons.Default.Straighten,
-                onClick = { }
+                onClick = { viewModel?.toggleUnitSystem() },
+                modifier = Modifier.testTag("settings_toggle_unit_system")
             )
-            
-            SettingsCategoryTitle("AR EXPERIENCE")
+
+            SettingsCategoryTitle("EXPERIENCIA AR")
 
             SettingsSwitchItem(
-                title = "Show Tracking Grid",
-                subtitle = "Display dot grid on detected surfaces",
+                title = "Mostrar Grilla de Rastreo",
+                subtitle = "Muestra la grilla de puntos sobre superficies detectadas",
                 icon = Icons.Default.GridOn,
                 checked = showGrid,
                 onCheckedChange = { showGrid = it }
             )
-            
+
             SettingsSwitchItem(
-                title = "High Quality Mode",
-                subtitle = "Uses more battery but improves tracking accuracy",
+                title = "Modo Alta Calidad",
+                subtitle = "Usa más batería pero mejora la precisión de rastreo",
                 icon = Icons.Default.HighQuality,
                 checked = highQualityMode,
                 onCheckedChange = { highQualityMode = it }
             )
 
-            SettingsCategoryTitle("PREFERENCES")
+            SettingsCategoryTitle("PREFERENCIAS")
 
             SettingsSwitchItem(
-                title = "Haptic Feedback",
-                subtitle = "Vibrate when placing points",
+                title = "Vibración",
+                subtitle = "Vibrar al colocar puntos",
                 icon = Icons.Default.Vibration,
                 checked = hapticsEnabled,
                 onCheckedChange = { hapticsEnabled = it }
             )
 
             SettingsSwitchItem(
-                title = "Measurement Sounds",
-                subtitle = "Play sound when point is placed",
+                title = "Sonidos de Medición",
+                subtitle = "Reproducir sonido al colocar un punto",
                 icon = Icons.Default.VolumeUp,
                 checked = soundEnabled,
                 onCheckedChange = { soundEnabled = it }
             )
-            
-            SettingsCategoryTitle("ACCOUNT")
+
+            SettingsCategoryTitle("CUENTA")
 
             SettingsItem(
-                title = "Manage Subscription",
-                subtitle = "Business Plan Active",
-                icon = Icons.Default.CreditCard,
-                onClick = { }
-            )
-
-            SettingsItem(
-                title = "Sign Out",
-                subtitle = null,
-                icon = Icons.Default.Logout,
+                title = "Cerrar Sesión",
+                subtitle = if (currentUser != null) "Salir de tu cuenta actual" else null,
+                icon = Icons.AutoMirrored.Filled.Logout,
                 iconColor = MaterialTheme.colorScheme.error,
                 textColor = MaterialTheme.colorScheme.error,
-                onClick = { }
+                onClick = {
+                    authViewModel?.logout()
+                    onLogout()
+                },
+                modifier = Modifier.testTag("settings_sign_out")
             )
 
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text(
                 text = "Metrax App v1.0.0",
                 style = MaterialTheme.typography.bodySmall,
                 color = Slate600,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
-            
+
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
@@ -209,10 +223,11 @@ fun SettingsItem(
     icon: ImageVector,
     iconColor: Color = Slate400,
     textColor: Color = Color.White,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 16.dp),

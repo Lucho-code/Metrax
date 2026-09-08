@@ -129,8 +129,15 @@ fun AppNavigation(
 
         composable(Routes.SETTINGS) {
             SettingsScreen(
+                viewModel = viewModel,
+                authViewModel = authViewModel,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onLogout = {
+                    navController.navigate(Routes.WELCOME) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }
