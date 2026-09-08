@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class MaterialPreset(val name: String, val densityKgPerM3: Float)
+
 class MeasurementViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: MeasurementRepository
@@ -47,7 +49,25 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val _heightMeters = MutableStateFlow(1.0)
     val heightMeters: StateFlow<Double> = _heightMeters.asStateFlow()
 
-    // Calibration Scale Factor (1.0 = standard default 180px per meter)
+    val availableMaterials = listOf(
+        MaterialPreset("Wood", 600f),
+        MaterialPreset("Asphalt", 700f),
+        MaterialPreset("Water", 1000f),
+        MaterialPreset("Gypsum", 1200f),
+        MaterialPreset("Concrete Block", 1400f),
+        MaterialPreset("Cement", 1440f),
+        MaterialPreset("Bricks", 1600f), // Used average of 1500-1700
+        MaterialPreset("Sand", 1650f),
+        MaterialPreset("Gravel", 1800f),
+        MaterialPreset("Clay", 1800f),
+        MaterialPreset("PCC", 2400f),
+        MaterialPreset("RCC", 2500f),
+        MaterialPreset("Steel", 7850f)
+    )
+
+    private val _selectedMaterial = MutableStateFlow(availableMaterials.first())
+    val selectedMaterial: StateFlow<MaterialPreset> = _selectedMaterial.asStateFlow()
+
     private val _scaleFactor = MutableStateFlow(1.0)
     val scaleFactor: StateFlow<Double> = _scaleFactor.asStateFlow()
 
@@ -115,6 +135,10 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setHeightMeters(height: Double) {
         _heightMeters.value = height.coerceAtLeast(0.01)
+    }
+    
+    fun setMaterial(material: MaterialPreset) {
+        _selectedMaterial.value = material
     }
 
     fun setScaleFactor(factor: Double) {

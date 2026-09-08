@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import android.opengl.Matrix
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ViewInAr
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Height
@@ -82,6 +84,9 @@ import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
+import com.example.ui.theme.DarkSurface
+import com.example.ui.theme.Slate400
+import com.example.ui.theme.Slate600
 import io.github.sceneview.ar.ARScene
 import io.github.sceneview.math.Position
 import io.github.sceneview.node.ModelNode
@@ -91,10 +96,48 @@ import io.github.sceneview.node.SphereNode
 import com.google.ar.core.Config
 import com.google.ar.core.PointCloud
 import com.example.ui.theme.AccentEmerald
-import com.example.ui.theme.PrimaryOrange
+import com.example.ui.theme.PrimaryAmber
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+
+private fun projectPoint3DToScreen(
+    point: Point3D,
+    frame: com.google.ar.core.Frame?,
+    width: Float,
+    height: Float
+): Offset? {
+    if (frame == null) return null
+    val camera = frame.camera ?: return null
+    if (camera.trackingState != com.google.ar.core.TrackingState.TRACKING) return null
+
+    val viewMatrix = FloatArray(16)
+    val projMatrix = FloatArray(16)
+    camera.getViewMatrix(viewMatrix, 0)
+    camera.getProjectionMatrix(projMatrix, 0, 0.1f, 100f)
+
+    val worldPos = floatArrayOf(point.x.toFloat(), point.y.toFloat(), point.z.toFloat(), 1.0f)
+    val viewPos = FloatArray(4)
+    Matrix.multiplyMV(viewPos, 0, viewMatrix, 0, worldPos, 0)
+
+    if (viewPos[2] > -0.05f) return null
+
+    val clipPos = FloatArray(4)
+    Matrix.multiplyMV(clipPos, 0, projMatrix, 0, viewPos, 0)
+
+    if (clipPos[3] == 0f) return null
+
+    val ndcX = clipPos[0] / clipPos[3]
+    val ndcY = clipPos[1] / clipPos[3]
+
+    val screenX = (ndcX + 1.0f) / 2.0f * width
+    val screenY = (1.0f - ndcY) / 2.0f * height
+
+    return Offset(screenX, screenY)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,6 +160,10 @@ fun MeasureScreen(
     var heightSliderValue by remember(heightMeters) { mutableFloatStateOf(heightMeters.toFloat()) }
     var customRefInput by remember { mutableStateOf("1.00") }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+    
+    // Onboarding State
+    var showOnboarding by remember { mutableStateOf(true) }
+    val textMeasurer = rememberTextMeasurer()
 
     val calculatedValue = viewModel.calculateCurrentValue()
     val currentArea = viewModel.calculateCurrentArea()
@@ -170,7 +217,7 @@ fun MeasureScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
-                                    if (preset == calibrationPreset) PrimaryOrange.copy(alpha = 0.2f)
+                                    if (preset == calibrationPreset) PrimaryAmber.copy(alpha = 0.2f)
                                     else Color.DarkGray.copy(alpha = 0.2f)
                                 )
                                 .clickable { viewModel.setCalibrationPreset(preset) }
@@ -182,7 +229,7 @@ fun MeasureScreen(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = if (preset == calibrationPreset) FontWeight.Bold else FontWeight.Normal
                                 ),
-                                color = if (preset == calibrationPreset) PrimaryOrange else Color.White
+                                color = if (preset == calibrationPreset) PrimaryAmber else Color.White
                             )
                         }
                     }
@@ -206,7 +253,7 @@ fun MeasureScreen(
                                 viewModel.calibrateScaleFromPoints()
                                 Toast.makeText(context, "Escala calibrada con éxito", Toast.LENGTH_SHORT).show()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryAmber),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Calibrar usando los 2 primeros puntos", color = Color.White)
@@ -250,7 +297,7 @@ fun MeasureScreen(
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontWeight = FontWeight.SemiBold,
                             color = when (mode) {
-                                MeasurementMode.DISTANCE -> PrimaryOrange
+                                MeasurementMode.DISTANCE -> PrimaryAmber
                                 MeasurementMode.AREA -> SecondaryCyan
                                 MeasurementMode.VOLUME -> AccentEmerald
                             }
@@ -276,7 +323,7 @@ fun MeasureScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = when (mode) {
-                            MeasurementMode.DISTANCE -> PrimaryOrange
+                            MeasurementMode.DISTANCE -> PrimaryAmber
                             MeasurementMode.AREA -> SecondaryCyan
                             MeasurementMode.VOLUME -> AccentEmerald
                         }
@@ -303,22 +350,58 @@ fun MeasureScreen(
         var childNodes by remember { mutableStateOf(listOf<Node>()) }
         var isScanning by remember { mutableStateOf(false) }
         var arSceneView by remember { mutableStateOf<io.github.sceneview.ar.ARSceneView?>(null) }
-        
-        androidx.compose.ui.viewinterop.AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                var currentFrame: com.google.ar.core.Frame? = null
-                io.github.sceneview.ar.ARSceneView(context).apply {
-                    planeRenderer.isVisible = true
-                    
-                    configureSession { session, config ->
-                        config.depthMode = com.google.ar.core.Config.DepthMode.AUTOMATIC
-                        config.planeFindingMode = com.google.ar.core.Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
-                        config.lightEstimationMode = com.google.ar.core.Config.LightEstimationMode.ENVIRONMENTAL_HDR
-                    }
+        var latestFrame by remember { mutableStateOf<com.google.ar.core.Frame?>(null) }
+        var currentCamPose by remember { mutableStateOf<com.google.ar.core.Pose?>(null) }
+        var cameraTrajectory by remember { mutableStateOf<List<Point3D>>(emptyList()) }
+        var isArInstalled by remember { mutableStateOf<Boolean?>(null) }
+        var countdownValue by remember { mutableStateOf<Int?>(null) }
+
+        androidx.compose.runtime.LaunchedEffect(countdownValue) {
+            if (countdownValue != null) {
+                if (countdownValue!! > 0) {
+                    kotlinx.coroutines.delay(1000)
+                    countdownValue = countdownValue!! - 1
+                } else {
+                    isScanning = true
+                    countdownValue = null
+                }
+            }
+        }
+
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            try {
+                context.packageManager.getPackageInfo("com.google.ar.core", 0)
+                isArInstalled = true
+            } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+                isArInstalled = false
+            }
+        }
+
+        if (isArInstalled == true) {
+            androidx.compose.ui.viewinterop.AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    io.github.sceneview.ar.ARSceneView(context).apply {
+                        planeRenderer.isVisible = true
+                        
+                        configureSession { session, config ->
+                            config.depthMode = com.google.ar.core.Config.DepthMode.AUTOMATIC
+                            config.planeFindingMode = com.google.ar.core.Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
+                            config.lightEstimationMode = com.google.ar.core.Config.LightEstimationMode.ENVIRONMENTAL_HDR
+                        }
 
                     onSessionUpdated = { session, frame ->
-                        currentFrame = frame
+                        latestFrame = frame
+                        val pose = frame.camera.pose
+                        currentCamPose = pose
+
+                        // Record real-time motion trajectory as user moves phone
+                        val newPoint = Point3D(pose.tx(), pose.ty(), pose.tz())
+                        val lastPoint = cameraTrajectory.lastOrNull()
+                        if (lastPoint == null || GeometryUtils.distance3D(lastPoint, newPoint) > 0.02) {
+                            cameraTrajectory = (cameraTrajectory + newPoint).takeLast(35)
+                        }
+
                         if (isScanning && mode == MeasurementMode.VOLUME) {
                             val pointCloud = frame.acquirePointCloud()
                             val pointsBuffer = pointCloud.points
@@ -343,8 +426,8 @@ fun MeasureScreen(
 
                     setOnTouchListener { _, motionEvent ->
                         if (motionEvent.action == android.view.MotionEvent.ACTION_UP && mode != MeasurementMode.VOLUME) {
-                            if (currentFrame != null) {
-                                val hitResults = currentFrame!!.hitTest(motionEvent.x, motionEvent.y)
+                            latestFrame?.let { frame ->
+                                val hitResults = frame.hitTest(motionEvent.x, motionEvent.y)
                                 val hit = hitResults.firstOrNull { it.trackable is com.google.ar.core.Plane }
                                 if (hit != null) {
                                     val pose = hit.hitPose
@@ -371,6 +454,316 @@ fun MeasureScreen(
                 arSceneView = view
             }
         )
+        } else if (isArInstalled == false) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Google Play Services for AR (ARCore) no está instalado. Instalalo desde la Play Store para usar esta función.",
+                    color = Color.White,
+                    modifier = Modifier.padding(32.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        // 2. Center Reticle & HUD Canvas Overlay
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        // Touch gesture handled by Sceneview or Marcar Punto button
+                    }
+                }
+        ) {
+            val centerX = size.width / 2f
+            val centerY = size.height / 2f
+            val reticleRadius = 20.dp.toPx()
+            val tickLen = 8.dp.toPx()
+
+            // Outer reticle circle
+            drawCircle(
+                color = Color.White.copy(alpha = 0.45f),
+                radius = reticleRadius,
+                center = Offset(centerX, centerY),
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+
+            // Center precision dot
+            drawCircle(
+                color = PrimaryAmber,
+                radius = 3.5.dp.toPx(),
+                center = Offset(centerX, centerY)
+            )
+
+            // Crosshair ticks
+            drawLine(
+                color = Color.White.copy(alpha = 0.7f),
+                start = Offset(centerX - reticleRadius - tickLen, centerY),
+                end = Offset(centerX - reticleRadius + 3.dp.toPx(), centerY),
+                strokeWidth = 1.5.dp.toPx()
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.7f),
+                start = Offset(centerX + reticleRadius - 3.dp.toPx(), centerY),
+                end = Offset(centerX + reticleRadius + tickLen, centerY),
+                strokeWidth = 1.5.dp.toPx()
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.7f),
+                start = Offset(centerX, centerY - reticleRadius - tickLen),
+                end = Offset(centerX, centerY - reticleRadius + 3.dp.toPx()),
+                strokeWidth = 1.5.dp.toPx()
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.7f),
+                start = Offset(centerX, centerY + reticleRadius - 3.dp.toPx()),
+                end = Offset(centerX, centerY + reticleRadius + tickLen),
+                strokeWidth = 1.5.dp.toPx()
+            )
+
+            // --- REAL-TIME AR OVERLAY & MEASUREMENT PATH OVERLAY ---
+
+            // 1. Draw Real-Time Camera Trajectory Path Trail
+            if (cameraTrajectory.size >= 2) {
+                val trajectoryPath = Path()
+                var firstPointDrawn = false
+                cameraTrajectory.forEach { pt ->
+                    val proj = projectPoint3DToScreen(pt, latestFrame, size.width, size.height)
+                    if (proj != null) {
+                        if (!firstPointDrawn) {
+                            trajectoryPath.moveTo(proj.x, proj.y)
+                            firstPointDrawn = true
+                        } else {
+                            trajectoryPath.lineTo(proj.x, proj.y)
+                        }
+                    }
+                }
+                if (firstPointDrawn) {
+                    drawPath(
+                        path = trajectoryPath,
+                        color = SecondaryCyan.copy(alpha = 0.35f),
+                        style = Stroke(
+                            width = 2.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                        )
+                    )
+                }
+            }
+
+            // 2. Project Marked 3D Points to Screen Offsets
+            val projectedPoints = points.map { pt ->
+                pt to projectPoint3DToScreen(pt, latestFrame, size.width, size.height)
+            }
+
+            val themeColor = when (mode) {
+                MeasurementMode.DISTANCE -> PrimaryAmber
+                MeasurementMode.AREA -> SecondaryCyan
+                MeasurementMode.VOLUME -> AccentEmerald
+            }
+
+            // 3. Draw Lines and Segment Labels between Consecutive Marked Points
+            if (projectedPoints.size >= 2) {
+                for (i in 0 until projectedPoints.size - 1) {
+                    val (p1, screen1) = projectedPoints[i]
+                    val (p2, screen2) = projectedPoints[i + 1]
+
+                    if (screen1 != null && screen2 != null) {
+                        drawLine(
+                            color = Color.Black.copy(alpha = 0.5f),
+                            start = screen1,
+                            end = screen2,
+                            strokeWidth = 6.dp.toPx()
+                        )
+                        drawLine(
+                            color = themeColor,
+                            start = screen1,
+                            end = screen2,
+                            strokeWidth = 3.5.dp.toPx()
+                        )
+
+                        val segDist = GeometryUtils.distance3D(p1, p2) * scaleFactor
+                        val labelText = GeometryUtils.formatLength(segDist, unitSystem)
+
+                        val midX = (screen1.x + screen2.x) / 2f
+                        val midY = (screen1.y + screen2.y) / 2f
+                        val textResult = textMeasurer.measure(
+                            text = labelText,
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        )
+                        val paddingPx = 8.dp.toPx()
+                        val badgeWidth = textResult.size.width + paddingPx * 2
+                        val badgeHeight = textResult.size.height + paddingPx
+
+                        drawRoundRect(
+                            color = Color.Black.copy(alpha = 0.8f),
+                            topLeft = Offset(midX - badgeWidth / 2f, midY - badgeHeight / 2f),
+                            size = androidx.compose.ui.geometry.Size(badgeWidth, badgeHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = themeColor,
+                            topLeft = Offset(midX - badgeWidth / 2f, midY - badgeHeight / 2f),
+                            size = androidx.compose.ui.geometry.Size(badgeWidth, badgeHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                        drawText(
+                            textLayoutResult = textResult,
+                            topLeft = Offset(midX - textResult.size.width / 2f, midY - textResult.size.height / 2f)
+                        )
+                    }
+                }
+            }
+
+            // 4. Draw Vertex Node Circles for Each Marked Point
+            projectedPoints.forEachIndexed { index, (pt3d, screenPos) ->
+                if (screenPos != null) {
+                    drawCircle(
+                        color = themeColor.copy(alpha = 0.3f),
+                        radius = 12.dp.toPx(),
+                        center = screenPos
+                    )
+                    drawCircle(
+                        color = Color.Black,
+                        radius = 8.dp.toPx(),
+                        center = screenPos
+                    )
+                    drawCircle(
+                        color = themeColor,
+                        radius = 6.dp.toPx(),
+                        center = screenPos
+                    )
+                }
+            }
+
+            // 5. REAL-TIME DYNAMIC LINE OVERLAY AS USER MOVES THE PHONE
+            if (points.isNotEmpty()) {
+                val lastPoint3D = points.last()
+                val lastScreenPos = projectPoint3DToScreen(lastPoint3D, latestFrame, size.width, size.height)
+                val activeTargetScreenPos = Offset(centerX, centerY)
+
+                val lineStart = lastScreenPos ?: Offset(centerX, centerY + 120f)
+
+                // Draw Dashed Active Real-Time Path Line to Reticle Center
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    start = lineStart,
+                    end = activeTargetScreenPos,
+                    strokeWidth = 6.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 12f), 0f)
+                )
+                drawLine(
+                    color = themeColor,
+                    start = lineStart,
+                    end = activeTargetScreenPos,
+                    strokeWidth = 3.5.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 12f), 0f)
+                )
+
+                // Calculate Live Distance to Current Camera Pose
+                val currentCam = currentCamPose
+                val liveDist = if (currentCam != null) {
+                    val cam3D = Point3D(currentCam.tx(), currentCam.ty(), currentCam.tz())
+                    GeometryUtils.distance3D(lastPoint3D, cam3D) * scaleFactor
+                } else {
+                    0.0
+                }
+
+                if (liveDist > 0.02) {
+                    val liveLabel = "📍 " + GeometryUtils.formatLength(liveDist, unitSystem) + " (en vivo)"
+                    val midX = (lineStart.x + activeTargetScreenPos.x) / 2f
+                    val midY = (lineStart.y + activeTargetScreenPos.y) / 2f - 24.dp.toPx()
+
+                    val liveTextResult = textMeasurer.measure(
+                        text = liveLabel,
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = PrimaryAmber
+                        )
+                    )
+                    val pad = 10.dp.toPx()
+                    val bW = liveTextResult.size.width + pad * 2
+                    val bH = liveTextResult.size.height + pad
+
+                    drawRoundRect(
+                        color = Color.Black.copy(alpha = 0.85f),
+                        topLeft = Offset(midX - bW / 2f, midY - bH / 2f),
+                        size = androidx.compose.ui.geometry.Size(bW, bH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                    )
+                    drawRoundRect(
+                        color = PrimaryAmber,
+                        topLeft = Offset(midX - bW / 2f, midY - bH / 2f),
+                        size = androidx.compose.ui.geometry.Size(bW, bH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                    drawText(
+                        textLayoutResult = liveTextResult,
+                        topLeft = Offset(midX - liveTextResult.size.width / 2f, midY - liveTextResult.size.height / 2f)
+                    )
+                }
+
+                // 6. Real-Time Closing Line for Area / Volume Mode
+                if ((mode == MeasurementMode.AREA || mode == MeasurementMode.VOLUME) && points.size >= 2) {
+                    val firstPoint3D = points.first()
+                    val firstScreenPos = projectPoint3DToScreen(firstPoint3D, latestFrame, size.width, size.height)
+
+                    if (firstScreenPos != null) {
+                        drawLine(
+                            color = SecondaryCyan.copy(alpha = 0.7f),
+                            start = activeTargetScreenPos,
+                            end = firstScreenPos,
+                            strokeWidth = 2.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
+                        )
+                    }
+                }
+            }
+            
+            // Giant Green Arrow (como muestra la imagen de SR Measure)
+            if (mode == MeasurementMode.DISTANCE && points.size == 1) {
+                val arrowWidth = 180.dp.toPx()
+                val arrowHeight = 120.dp.toPx()
+                val tailHeight = 50.dp.toPx()
+                val headWidth = 70.dp.toPx()
+                
+                val startX = centerX - arrowWidth / 2f
+                val startY = centerY + 120.dp.toPx() // Positioned below reticle
+                
+                val arrowPath = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(startX, startY - tailHeight / 2f)
+                    lineTo(startX + arrowWidth - headWidth, startY - tailHeight / 2f)
+                    lineTo(startX + arrowWidth - headWidth, startY - arrowHeight / 2f)
+                    lineTo(startX + arrowWidth, startY)
+                    lineTo(startX + arrowWidth - headWidth, startY + arrowHeight / 2f)
+                    lineTo(startX + arrowWidth - headWidth, startY + tailHeight / 2f)
+                    lineTo(startX, startY + tailHeight / 2f)
+                    close()
+                }
+                
+                // Draw green fill
+                drawPath(
+                    path = arrowPath,
+                    color = Color(0xFF00FF00) // Bright green like in the image
+                )
+                
+                // Draw black outline
+                drawPath(
+                    path = arrowPath,
+                    color = Color.Black,
+                    style = Stroke(width = 6.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round)
+                )
+            }
+        }
 
         // 3. Top Header Controls Overlay with TopAppBar
         Column(
@@ -395,7 +788,7 @@ fun MeasureScreen(
                         MeasurementMode.values().forEach { m ->
                             val active = m == mode
                             val pillColor = when (m) {
-                                MeasurementMode.DISTANCE -> PrimaryOrange
+                                MeasurementMode.DISTANCE -> PrimaryAmber
                                 MeasurementMode.AREA -> SecondaryCyan
                                 MeasurementMode.VOLUME -> AccentEmerald
                             }
@@ -422,13 +815,15 @@ fun MeasureScreen(
                                         tint = if (active) (if (m == MeasurementMode.DISTANCE) Color.White else Color.Black) else Color.LightGray,
                                         modifier = Modifier.size(16.dp)
                                     )
-                                    Text(
-                                        text = m.label,
-                                        style = MaterialTheme.typography.labelMedium.copy(
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        color = if (active) (if (m == MeasurementMode.DISTANCE) Color.White else Color.Black) else Color.LightGray
-                                    )
+                                    if (active) {
+                                        Text(
+                                            text = m.label,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            color = if (m == MeasurementMode.DISTANCE) Color.White else Color.Black
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -498,7 +893,7 @@ fun MeasureScreen(
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = Color.Black.copy(alpha = 0.65f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryOrange.copy(alpha = 0.5f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryAmber.copy(alpha = 0.5f)),
                     modifier = Modifier.clickable { viewModel.setShowCalibrationDialog(true) }
                 ) {
                     Row(
@@ -509,12 +904,12 @@ fun MeasureScreen(
                         Icon(
                             imageVector = Icons.Default.Tune,
                             contentDescription = null,
-                            tint = PrimaryOrange,
+                            tint = PrimaryAmber,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Calibración: ${calibrationPreset.displayName.split(" ")[0]}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp),
                             color = Color.White
                         )
                     }
@@ -523,7 +918,7 @@ fun MeasureScreen(
         }
 
         // 4. Volume Height / Depth Parameter Controller Card
-        if (mode == MeasurementMode.VOLUME) {
+        if (mode == MeasurementMode.VOLUME && isArInstalled == true) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -571,36 +966,123 @@ fun MeasureScreen(
                                 .height(28.dp)
                                 .testTag("slider_height")
                         )
+                        
+                        // Material Selection Menu
+                        var expanded by remember { mutableStateOf(false) }
+                        val selectedMaterial by viewModel.selectedMaterial.collectAsStateWithLifecycle()
+                        val materials = viewModel.availableMaterials
+                        
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = DarkSurface,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Slate600),
+                                modifier = Modifier.fillMaxWidth().clickable { expanded = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Material",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Slate400
+                                        )
+                                        Text(
+                                            text = "${selectedMaterial.name} (${selectedMaterial.densityKgPerM3.toInt()} kg/m³)",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                            color = Color.White
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = null,
+                                        tint = Slate400
+                                    )
+                                }
+                            }
+                            
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false },
+                                modifier = Modifier.background(DarkSurface)
+                            ) {
+                                materials.forEach { material ->
+                                    DropdownMenuItem(
+                                        text = { 
+                                            Text(
+                                                text = "${material.name} - ${material.densityKgPerM3.toInt()} kg/m³",
+                                                color = Color.White 
+                                            ) 
+                                        },
+                                        onClick = {
+                                            viewModel.setMaterial(material)
+                                            expanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
         // 5. Dynamic Guidance Hint Banner
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = if (mode == MeasurementMode.VOLUME) 210.dp else 140.dp, start = 20.dp, end = 20.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Black.copy(alpha = 0.75f)
+        if (isArInstalled == true) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (mode == MeasurementMode.VOLUME) 210.dp else 140.dp, start = 20.dp, end = 20.dp)
             ) {
-                Text(
-                    text = when {
-                        points.isEmpty() -> if (mode == MeasurementMode.DISTANCE)
-                            "Tocá sobre la cámara en vivo para fijar puntos de medición."
-                        else if (mode == MeasurementMode.AREA)
-                            "Tocá los vértices de la superficie a delimitar (mínimo 3 puntos)."
-                        else
-                            "Tocá los vértices de la base del objeto y ajustá la altura arriba para calcular el volumen."
-                        points.size < mode.minPoints -> "Agregá más puntos para completar el cálculo de ${mode.label.lowercase()}."
-                        else -> "¡Cálculo en vivo! Podés seguir agregando puntos o guardar el resultado."
-                    },
-                    style = MaterialTheme.typography.bodySmall.copy(textAlign = TextAlign.Center),
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                )
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Black.copy(alpha = 0.5f)
+                ) {
+                    Text(
+                        text = when {
+                            points.isEmpty() -> if (mode == MeasurementMode.DISTANCE)
+                                "Tocá la pantalla para añadir un punto"
+                            else if (mode == MeasurementMode.AREA)
+                                "Tocá la pantalla para delimitar área"
+                            else
+                                "Calculá áreas y ajustá su altura"
+                            points.size < mode.minPoints -> "Agregá más puntos para ${mode.label.lowercase()}."
+                            else -> "¡Cálculo en vivo! Continuar o guardar."
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(textAlign = TextAlign.Center),
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        // Countdown Overlay
+        if (countdownValue != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Preparando escaneo en...",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White
+                    )
+                    Text(
+                        text = countdownValue.toString(),
+                        style = TextStyle(
+                            fontSize = 140.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = AccentEmerald,
+                        )
+                    )
+                }
             }
         }
 
@@ -629,7 +1111,7 @@ fun MeasureScreen(
                     border = androidx.compose.foundation.BorderStroke(
                         width = 1.5.dp,
                         color = when (mode) {
-                            MeasurementMode.DISTANCE -> PrimaryOrange
+                            MeasurementMode.DISTANCE -> PrimaryAmber
                             MeasurementMode.AREA -> SecondaryCyan
                             MeasurementMode.VOLUME -> AccentEmerald
                         }
@@ -661,7 +1143,7 @@ fun MeasureScreen(
                                 fontSize = 32.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = when (mode) {
-                                    MeasurementMode.DISTANCE -> PrimaryOrange
+                                    MeasurementMode.DISTANCE -> PrimaryAmber
                                     MeasurementMode.AREA -> SecondaryCyan
                                     MeasurementMode.VOLUME -> AccentEmerald
                                 }
@@ -669,6 +1151,17 @@ fun MeasureScreen(
                         )
 
                         if (mode == MeasurementMode.VOLUME) {
+                            val selectedMaterial by viewModel.selectedMaterial.collectAsStateWithLifecycle()
+                            // Convert volume from m³ to mass in tons
+                            val massTons = (calculatedValue * selectedMaterial.densityKgPerM3) / 1000.0
+                            
+                            Text(
+                                text = "Masa: ${String.format("%.2f", massTons)} Ton (${selectedMaterial.name})",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+                            
                             Text(
                                 text = "Área base: ${GeometryUtils.formatArea(currentArea, unitSystem)} | Altura: ${GeometryUtils.formatLength(heightMeters, unitSystem)}",
                                 style = MaterialTheme.typography.labelSmall,
@@ -679,34 +1172,115 @@ fun MeasureScreen(
                     }
                 }
             }
+            
+            // Status text for start/end points
+            if (mode == MeasurementMode.DISTANCE) {
+                Text(
+                    text = when (points.size) {
+                        0 -> "Ubique el Punto de Partida"
+                        1 -> "Punto de Partida fijado. Caminá al Punto Final"
+                        else -> "Punto de Partida y Punto Final fijados"
+                    },
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .align(Alignment.CenterHorizontally)
+                )
+            }
 
             // Action Buttons Bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            if (isArInstalled == true) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                // Primary 'Añadir Punto' / 'Escanear' Button
                 if (mode == MeasurementMode.VOLUME) {
                     Button(
-                        onClick = { isScanning = !isScanning },
+                        onClick = { 
+                            if (isScanning || countdownValue != null) {
+                                isScanning = false
+                                countdownValue = null
+                            } else {
+                                countdownValue = 3
+                            }
+                        },
                         modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp)
+                            .weight(1.2f)
+                            .height(52.dp)
                             .testTag("btn_scan"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isScanning) AccentEmerald else Color.White.copy(alpha = 0.18f),
+                            containerColor = if (isScanning || countdownValue != null) AccentEmerald else PrimaryAmber
                         )
                     ) {
-                        Text(if (isScanning) "Detener Escaneo" else "Iniciar Escaneo 3D", color = Color.White)
+                        Text(
+                            text = if (isScanning) "Detener Escaneo" else if (countdownValue != null) "Preparando..." else "Escanear 3D",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 } else {
+                    Button(
+                        onClick = {
+                            latestFrame?.let { frame ->
+                                val view = arSceneView
+                                val centerX = (view?.width ?: 1080) / 2f
+                                val centerY = (view?.height ?: 1920) / 2f
+                                val hitResults = frame.hitTest(centerX, centerY)
+                                val hit = hitResults.firstOrNull { it.trackable is com.google.ar.core.Plane }
+                                if (hit != null) {
+                                    val pose = hit.hitPose
+                                    viewModel.addPoint(Point3D(pose.tx(), pose.ty(), pose.tz()))
+                                    if (view != null) {
+                                        try {
+                                            val anchorNode = io.github.sceneview.ar.node.AnchorNode(view.engine, hit.createAnchor())
+                                            val sphereNode = io.github.sceneview.node.SphereNode(
+                                                engine = view.engine,
+                                                radius = 0.025f,
+                                                center = io.github.sceneview.math.Position(0f, 0f, 0f)
+                                            )
+                                            anchorNode.addChildNode(sphereNode)
+                                            view.addChildNode(anchorNode)
+                                        } catch (e: Exception) { }
+                                    }
+                                } else {
+                                    val cameraPose = frame.camera.pose
+                                    val px = cameraPose.tx() - cameraPose.zAxis[0] * 1.2f
+                                    val py = cameraPose.ty() - cameraPose.zAxis[1] * 1.2f
+                                    val pz = cameraPose.tz() - cameraPose.zAxis[2] * 1.2f
+                                    viewModel.addPoint(Point3D(px, py, pz))
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(52.dp)
+                            .testTag("btn_add_point_reticle"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PrimaryAmber
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Añadir Punto", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+
                     // Undo Button
                     Button(
                         onClick = { viewModel.undoLastPoint() },
                         enabled = points.isNotEmpty(),
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp)
+                            .height(52.dp)
                             .testTag("btn_undo"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -730,8 +1304,8 @@ fun MeasureScreen(
                     onClick = { viewModel.resetPoints() },
                     enabled = points.isNotEmpty(),
                     modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp)
+                        .weight(0.9f)
+                        .height(52.dp)
                         .testTag("btn_reset"),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -745,8 +1319,6 @@ fun MeasureScreen(
                         tint = if (points.isNotEmpty()) Color.White else Color.Gray,
                         modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Reiniciar", color = if (points.isNotEmpty()) Color.White else Color.Gray)
                 }
 
                 // Save Button
@@ -754,13 +1326,13 @@ fun MeasureScreen(
                     onClick = { viewModel.setShowSaveDialog(true) },
                     enabled = calculatedValue > 0.0,
                     modifier = Modifier
-                        .weight(1.2f)
-                        .height(50.dp)
+                        .weight(1.1f)
+                        .height(52.dp)
                         .testTag("btn_save_measurement"),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = when (mode) {
-                            MeasurementMode.DISTANCE -> PrimaryOrange
+                            MeasurementMode.DISTANCE -> PrimaryAmber
                             MeasurementMode.AREA -> SecondaryCyan
                             MeasurementMode.VOLUME -> AccentEmerald
                         },
@@ -780,6 +1352,77 @@ fun MeasureScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+    
+    // Onboarding Overlay
+        if (showOnboarding) {
+            AROnboardingOverlay(
+                onDismiss = { showOnboarding = false }
+            )
+        }
+    }
+}
+
+@Composable
+fun AROnboardingOverlay(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.85f))
+            .clickable(enabled = false) { } // Consume clicks to prevent interacting with AR underneath
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Animated or static icon representing phone scanning
+            Icon(
+                imageVector = Icons.Default.ViewInAr,
+                contentDescription = null,
+                tint = PrimaryAmber,
+                modifier = Modifier
+                    .size(80.dp)
+                    .padding(bottom = 24.dp)
+            )
+            
+            Text(
+                text = "Mapeando Entorno",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = "Mueve tu teléfono lentamente de lado a lado apuntando a las superficies que deseas medir para que el sistema las detecte.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Slate400,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryAmber),
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .height(56.dp)
+            ) {
+                Text(
+                    text = "Entendido",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
         }
     }

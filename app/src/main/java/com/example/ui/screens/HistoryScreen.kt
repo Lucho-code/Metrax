@@ -70,7 +70,7 @@ import com.example.data.model.MeasurementMode
 import com.example.data.model.UnitSystem
 import com.example.ui.components.ExportDialog
 import com.example.ui.theme.AccentEmerald
-import com.example.ui.theme.PrimaryOrange
+import com.example.ui.theme.PrimaryAmber
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.theme.Slate400
 import com.example.ui.viewmodel.MeasurementViewModel
@@ -184,13 +184,13 @@ fun HistoryScreen(
                             Icon(
                                 imageVector = Icons.Default.Download,
                                 contentDescription = "Exportar",
-                                tint = PrimaryOrange,
+                                tint = PrimaryAmber,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "Exportar",
-                                color = PrimaryOrange,
+                                color = PrimaryAmber,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -230,7 +230,7 @@ fun HistoryScreen(
                     .testTag("input_search_history"),
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = PrimaryOrange,
+                    focusedBorderColor = PrimaryAmber,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                     focusedContainerColor = MaterialTheme.colorScheme.surface,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface
@@ -254,7 +254,7 @@ fun HistoryScreen(
                         onClick = { viewModel.setHistoryFilter(filterKey) },
                         label = { Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PrimaryOrange,
+                            selectedContainerColor = PrimaryAmber,
                             selectedLabelColor = Color.White,
                             containerColor = MaterialTheme.colorScheme.surface
                         ),
@@ -373,7 +373,7 @@ private fun MeasurementCardItem(
     val isVolume = item.mode == MeasurementMode.VOLUME.name
 
     val accentColor = when {
-        isDistance -> PrimaryOrange
+        isDistance -> PrimaryAmber
         isArea -> SecondaryCyan
         else -> AccentEmerald
     }

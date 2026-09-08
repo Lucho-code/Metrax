@@ -65,7 +65,7 @@ import com.example.data.db.MeasurementEntity
 import com.example.data.model.MeasurementMode
 import com.example.data.model.UnitSystem
 import com.example.ui.theme.AccentEmerald
-import com.example.ui.theme.PrimaryOrange
+import com.example.ui.theme.PrimaryAmber
 import com.example.ui.theme.SecondaryCyan
 import com.example.util.ExportManager
 import com.example.util.GeometryUtils
@@ -161,13 +161,13 @@ fun ExportDialog(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(PrimaryOrange.copy(alpha = 0.2f)),
+                                .background(PrimaryAmber.copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Download,
                                 contentDescription = null,
-                                tint = PrimaryOrange
+                                tint = PrimaryAmber
                             )
                         }
                         Column {
@@ -232,14 +232,14 @@ fun ExportDialog(
                                 .clickable { selectedFormat = format }
                                 .border(
                                     width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) PrimaryOrange else MaterialTheme.colorScheme.outline.copy(
+                                    color = if (isSelected) PrimaryAmber else MaterialTheme.colorScheme.outline.copy(
                                         alpha = 0.2f
                                     ),
                                     shape = RoundedCornerShape(16.dp)
                                 ),
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) PrimaryOrange.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
+                                containerColor = if (isSelected) PrimaryAmber.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
                             )
                         ) {
                             Row(
@@ -253,7 +253,7 @@ fun ExportDialog(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(CircleShape)
-                                        .background(if (isSelected) PrimaryOrange else MaterialTheme.colorScheme.surfaceVariant),
+                                        .background(if (isSelected) PrimaryAmber else MaterialTheme.colorScheme.surfaceVariant),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -278,7 +278,7 @@ fun ExportDialog(
 
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) PrimaryOrange else MaterialTheme.colorScheme.surfaceVariant
+                                    color = if (isSelected) PrimaryAmber else MaterialTheme.colorScheme.surfaceVariant
                                 ) {
                                     Text(
                                         text = ".${format.extension}",
@@ -374,7 +374,7 @@ fun ExportDialog(
                             .height(48.dp)
                             .testTag("btn_share_export_file"),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange)
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryAmber)
                     ) {
                         Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -414,7 +414,7 @@ private fun ComposeBarChartPreview(
                 label = "Distancias ($distCount)",
                 formattedValue = GeometryUtils.formatLength(totalDist, unitSystem),
                 ratio = (totalDist / maxVal).toFloat(),
-                color = PrimaryOrange
+                color = PrimaryAmber
             )
 
             // Bar 2: Áreas
