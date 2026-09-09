@@ -31,7 +31,6 @@ data class AppStrings(
     val delete: String,
     val close: String,
     val ready: String,
-    val surfaceClosed: String,
 
     // Welcome Screen
     val welcomeTitle: String,
@@ -225,7 +224,6 @@ val SpanishStrings = AppStrings(
     delete = "Eliminar",
     close = "Cerrar",
     ready = "LISTO",
-    surfaceClosed = "✅ Superficie cerrada. Continuar o guardar.",
 
     welcomeTitle = "METRAX AR",
     welcomeSubtitle = "SISTEMA DE MEDICIÓN Y FOTOGRAMETRÍA 3D",
@@ -354,7 +352,6 @@ val EnglishStrings = AppStrings(
     delete = "Delete",
     close = "Close",
     ready = "READY",
-    surfaceClosed = "✅ Surface closed. Continue or save.",
 
     welcomeTitle = "METRAX AR",
     welcomeSubtitle = "3D PHOTOGRAMMETRY & MEASUREMENT SYSTEM",
@@ -504,7 +501,6 @@ val PortugueseStrings = AppStrings(
     delete = "Excluir",
     close = "Fechar",
     ready = "PRONTO",
-    surfaceClosed = "✅ Superfície fechada. Continuar ou salvar.",
 
     welcomeTitle = "METRAX AR",
     welcomeSubtitle = "SISTEMA DE MEDIÇÃO E FOTOGRAMETRIA 3D",

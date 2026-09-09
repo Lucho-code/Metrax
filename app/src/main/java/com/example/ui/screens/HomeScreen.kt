@@ -257,7 +257,7 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Menú",
+                            text = "Menu",
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color.Black
                         )
@@ -326,7 +326,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        text = "Suscribirse",
+                        text = "Subscribe",
                         style = MaterialTheme.typography.titleMedium,
                         color = PrimaryAmber,
                         modifier = Modifier.weight(1f)
@@ -340,9 +340,10 @@ fun HomeScreen(
                 
                 // Other Options
                 val menuItems: List<Pair<String, androidx.compose.ui.graphics.vector.ImageVector>> = listOf(
+                    "Digital Cones" to Icons.Default.ViewInAr,
                     strings.settings to Icons.Default.Settings
                 )
-
+                
                 menuItems.forEach { (label, icon) ->
                     Row(
                         modifier = Modifier
@@ -422,11 +423,11 @@ fun HomeScreen(
                 
                 // Footer Options
                 val footerItems = listOf(
-                    strings.drawerPrivacy,
-                    strings.drawerTerms,
+                    "Privacy Policy",
+                    "Customer Agreement",
                     strings.logout
                 )
-
+                
                 footerItems.forEach { label ->
                     Row(
                         modifier = Modifier

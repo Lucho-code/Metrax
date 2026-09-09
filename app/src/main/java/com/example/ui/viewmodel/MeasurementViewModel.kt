@@ -66,32 +66,23 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     val heightMeters: StateFlow<Double> = _heightMeters.asStateFlow()
 
     val availableMaterials = listOf(
-        MaterialPreset("Madera", 600f),
-        MaterialPreset("Asfalto", 700f),
-        MaterialPreset("Agua", 1000f),
-        MaterialPreset("Yeso", 1200f),
-        MaterialPreset("Bloque de hormigón", 1400f),
-        MaterialPreset("Cemento", 1440f),
-        MaterialPreset("Ladrillos", 1600f), // Promedio de 1500-1700
-        MaterialPreset("Arena", 1650f),
-        MaterialPreset("Grava", 1800f),
-        MaterialPreset("Arcilla", 1800f),
-        MaterialPreset("Hormigón simple (PCC)", 2400f),
-        MaterialPreset("Hormigón armado (RCC)", 2500f),
-        MaterialPreset("Acero", 7850f)
+        MaterialPreset("Wood", 600f),
+        MaterialPreset("Asphalt", 700f),
+        MaterialPreset("Water", 1000f),
+        MaterialPreset("Gypsum", 1200f),
+        MaterialPreset("Concrete Block", 1400f),
+        MaterialPreset("Cement", 1440f),
+        MaterialPreset("Bricks", 1600f), // Used average of 1500-1700
+        MaterialPreset("Sand", 1650f),
+        MaterialPreset("Gravel", 1800f),
+        MaterialPreset("Clay", 1800f),
+        MaterialPreset("PCC", 2400f),
+        MaterialPreset("RCC", 2500f),
+        MaterialPreset("Steel", 7850f)
     )
 
     private val _selectedMaterial = MutableStateFlow(availableMaterials.first())
     val selectedMaterial: StateFlow<MaterialPreset> = _selectedMaterial.asStateFlow()
-
-    /**
-     * Overrides the density of the currently selected material with a
-     * user-entered value, keeping its name.
-     */
-    fun setCustomDensity(densityKgPerM3: Float) {
-        if (densityKgPerM3 <= 0f) return
-        _selectedMaterial.value = _selectedMaterial.value.copy(densityKgPerM3 = densityKgPerM3)
-    }
 
     private val _scaleFactor = MutableStateFlow(1.0)
     val scaleFactor: StateFlow<Double> = _scaleFactor.asStateFlow()
@@ -327,14 +318,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     fun calculateCurrentArea(): Double {
         val currentPoints = _points.value
         if (currentPoints.size < 3) return 0.0
-        // Volume mode collects an unordered point cloud (scan order, not
-        // perimeter order), so its footprint needs a convex-hull area
-        // instead of the ordered-vertex shoelace formula used for AREA mode.
-        val baseArea = if (_mode.value == MeasurementMode.VOLUME) {
-            GeometryUtils.pointCloudFootprintArea(currentPoints)
-        } else {
-            GeometryUtils.polygonArea3D(currentPoints)
-        }
+        val baseArea = GeometryUtils.polygonArea3D(currentPoints)
         return baseArea * _scaleFactor.value * _scaleFactor.value
     }
 

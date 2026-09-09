@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,33 +18,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.UnitSystem
-import com.example.data.model.User
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PrimaryAmber
 import com.example.ui.theme.SecondaryCyan
 import com.example.ui.theme.Slate400
 import com.example.ui.theme.Slate600
-import com.example.ui.viewmodel.AuthViewModel
-import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.AppLanguage
 import com.example.util.LanguageManager
 import com.example.util.LocalAppStrings
-import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: MeasurementViewModel? = null,
-    authViewModel: AuthViewModel? = null,
-    onNavigateBack: () -> Unit,
-    onLogout: () -> Unit = {}
+    onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
     val strings = LocalAppStrings.current
@@ -56,17 +46,6 @@ fun SettingsScreen(
     var soundEnabled by remember { mutableStateOf(false) }
     var highQualityMode by remember { mutableStateOf(true) }
     var showGrid by remember { mutableStateOf(true) }
-
-    val currentUser by (authViewModel?.currentUser ?: MutableStateFlow<User?>(null)).collectAsStateWithLifecycle()
-    val unitSystem by (viewModel?.unitSystem ?: MutableStateFlow(UnitSystem.METRIC)).collectAsStateWithLifecycle()
-
-    val initials = remember(currentUser) {
-        val name = currentUser?.name?.trim().orEmpty()
-        if (name.isBlank()) "IN" else name.split(" ")
-            .filter { it.isNotBlank() }
-            .take(2)
-            .joinToString("") { it.first().uppercase() }
-    }
 
     // Language Selection Dialog
     if (showLanguageDialog) {
@@ -191,7 +170,7 @@ fun SettingsScreen(
                     .widthIn(max = 600.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-
+                
                 // Profile Section
                 Box(
                     modifier = Modifier
@@ -199,6 +178,7 @@ fun SettingsScreen(
                         .padding(16.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(DarkSurface)
+                        .clickable { }
                         .padding(16.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -209,7 +189,7 @@ fun SettingsScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                initials,
+                                "LR",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                 color = Color.Black
                             )
@@ -217,21 +197,26 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = currentUser?.name ?: "Invitado",
+                                text = "Lucio Rostagno",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
                             Text(
-                                text = currentUser?.email ?: "Sin cuenta iniciada",
+                                text = "luciorostagno@gmail.com",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Slate400
                             )
                         }
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Profile",
+                            tint = Slate400
+                        )
                     }
                 }
-
+                
                 SettingsCategoryTitle(strings.languageSetting.uppercase())
-
+                
                 SettingsItem(
                     title = strings.languageSetting,
                     subtitle = "${currentLanguage.flagEmoji} ${currentLanguage.displayName}",
@@ -240,17 +225,16 @@ fun SettingsScreen(
                     onClick = { showLanguageDialog = true }
                 )
 
-                SettingsCategoryTitle("MEDICIÓN")
-
+                SettingsCategoryTitle("MEASUREMENT")
+                
                 SettingsItem(
                     title = strings.unitSystem,
-                    subtitle = if (unitSystem == UnitSystem.METRIC) strings.unitSystemMetric else strings.unitSystemImperial,
+                    subtitle = strings.unitSystemMetric,
                     icon = Icons.Default.Straighten,
-                    onClick = { viewModel?.toggleUnitSystem() },
-                    modifier = Modifier.testTag("settings_toggle_unit_system")
+                    onClick = { }
                 )
-
-                SettingsCategoryTitle("EXPERIENCIA AR")
+                
+                SettingsCategoryTitle("AR EXPERIENCE")
 
                 SettingsSwitchItem(
                     title = strings.showTrackingGrid,
@@ -259,7 +243,7 @@ fun SettingsScreen(
                     checked = showGrid,
                     onCheckedChange = { showGrid = it }
                 )
-
+                
                 SettingsSwitchItem(
                     title = strings.highQualityMode,
                     subtitle = strings.highQualityModeDesc,
@@ -268,7 +252,7 @@ fun SettingsScreen(
                     onCheckedChange = { highQualityMode = it }
                 )
 
-                SettingsCategoryTitle("PREFERENCIAS")
+                SettingsCategoryTitle("PREFERENCES")
 
                 SettingsSwitchItem(
                     title = strings.hapticFeedback,
@@ -285,8 +269,8 @@ fun SettingsScreen(
                     checked = soundEnabled,
                     onCheckedChange = { soundEnabled = it }
                 )
-
-                SettingsCategoryTitle("CUENTA")
+                
+                SettingsCategoryTitle("ACCOUNT")
 
                 SettingsItem(
                     title = strings.manageSubscription,
@@ -297,26 +281,22 @@ fun SettingsScreen(
 
                 SettingsItem(
                     title = strings.signOut,
-                    subtitle = if (currentUser != null) "Salir de tu cuenta actual" else null,
-                    icon = Icons.AutoMirrored.Filled.Logout,
+                    subtitle = null,
+                    icon = Icons.Default.Logout,
                     iconColor = MaterialTheme.colorScheme.error,
                     textColor = MaterialTheme.colorScheme.error,
-                    onClick = {
-                        authViewModel?.logout()
-                        onLogout()
-                    },
-                    modifier = Modifier.testTag("settings_sign_out")
+                    onClick = onNavigateBack
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
-
+                
                 Text(
                     text = strings.appVersion,
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
-
+                
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -343,11 +323,10 @@ fun SettingsItem(
     icon: ImageVector,
     iconColor: Color = Slate400,
     textColor: Color = Color.White,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onClick: () -> Unit
 ) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 16.dp),

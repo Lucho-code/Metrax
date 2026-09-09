@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -696,10 +695,7 @@ fun MeasureScreen(
             }
 
             // 3. Draw Lines and Segment Labels between Consecutive Marked Points
-            // (skipped in VOLUME mode: points there are an unordered point
-            // cloud, not ordered corner taps, so connecting them draws a
-            // scribble instead of a measurement path)
-            if (mode != MeasurementMode.VOLUME && projectedPoints.size >= 2) {
+            if (projectedPoints.size >= 2) {
                 for (i in 0 until projectedPoints.size - 1) {
                     val (p1, screen1) = projectedPoints[i]
                     val (p2, screen2) = projectedPoints[i + 1]
@@ -754,125 +750,31 @@ fun MeasureScreen(
                         )
                     }
                 }
-
-                // Closing segment: connects the last point back to the first
-                // once there are enough points to form a closed surface, so
-                // the polygon visibly closes instead of dangling open.
-                if (mode == MeasurementMode.AREA && projectedPoints.size >= 3) {
-                    val (pFirst, screenFirst) = projectedPoints.first()
-                    val (pLast, screenLast) = projectedPoints.last()
-
-                    if (screenFirst != null && screenLast != null) {
-                        drawLine(
-                            color = Color.Black.copy(alpha = 0.5f),
-                            start = screenLast,
-                            end = screenFirst,
-                            strokeWidth = 6.dp.toPx()
-                        )
-                        drawLine(
-                            color = themeColor,
-                            start = screenLast,
-                            end = screenFirst,
-                            strokeWidth = 3.5.dp.toPx()
-                        )
-
-                        val closeDist = GeometryUtils.distance3D(pLast, pFirst) * scaleFactor
-                        val closeLabelText = GeometryUtils.formatLength(closeDist, unitSystem)
-
-                        val midX = (screenLast.x + screenFirst.x) / 2f
-                        val midY = (screenLast.y + screenFirst.y) / 2f
-                        val closeTextResult = textMeasurer.measure(
-                            text = closeLabelText,
-                            style = TextStyle(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        )
-                        val paddingPx = 8.dp.toPx()
-                        val badgeWidth = closeTextResult.size.width + paddingPx * 2
-                        val badgeHeight = closeTextResult.size.height + paddingPx
-
-                        drawRoundRect(
-                            color = Color.Black.copy(alpha = 0.8f),
-                            topLeft = Offset(midX - badgeWidth / 2f, midY - badgeHeight / 2f),
-                            size = androidx.compose.ui.geometry.Size(badgeWidth, badgeHeight),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
-                        )
-                        drawRoundRect(
-                            color = themeColor,
-                            topLeft = Offset(midX - badgeWidth / 2f, midY - badgeHeight / 2f),
-                            size = androidx.compose.ui.geometry.Size(badgeWidth, badgeHeight),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
-                            style = Stroke(width = 1.dp.toPx())
-                        )
-                        drawText(
-                            textLayoutResult = closeTextResult,
-                            topLeft = Offset(midX - closeTextResult.size.width / 2f, midY - closeTextResult.size.height / 2f)
-                        )
-                    }
-                }
             }
 
-            // 4. Draw Vertex/Point Markers
-            if (mode == MeasurementMode.VOLUME) {
-                // Point cloud: small dots only, no vertex chrome
-                projectedPoints.forEach { (_, screenPos) ->
-                    if (screenPos != null) {
-                        drawCircle(
-                            color = themeColor.copy(alpha = 0.85f),
-                            radius = 2.5.dp.toPx(),
-                            center = screenPos
-                        )
-                    }
-                }
-            } else {
-                val isClosedSurface = mode == MeasurementMode.AREA && projectedPoints.size >= 3
-                projectedPoints.forEachIndexed { index, (pt3d, screenPos) ->
-                    if (screenPos != null) {
-                        // Highlight the starting point once the surface has
-                        // closed back onto it, as visible confirmation.
-                        if (isClosedSurface && index == 0) {
-                            drawCircle(
-                                color = AccentEmerald.copy(alpha = 0.35f),
-                                radius = 16.dp.toPx(),
-                                center = screenPos
-                            )
-                            drawCircle(
-                                color = Color.Black,
-                                radius = 9.dp.toPx(),
-                                center = screenPos
-                            )
-                            drawCircle(
-                                color = AccentEmerald,
-                                radius = 7.dp.toPx(),
-                                center = screenPos
-                            )
-                        } else {
-                            drawCircle(
-                                color = themeColor.copy(alpha = 0.3f),
-                                radius = 12.dp.toPx(),
-                                center = screenPos
-                            )
-                            drawCircle(
-                                color = Color.Black,
-                                radius = 8.dp.toPx(),
-                                center = screenPos
-                            )
-                            drawCircle(
-                                color = themeColor,
-                                radius = 6.dp.toPx(),
-                                center = screenPos
-                            )
-                        }
-                    }
+            // 4. Draw Vertex Node Circles for Each Marked Point
+            projectedPoints.forEachIndexed { index, (pt3d, screenPos) ->
+                if (screenPos != null) {
+                    drawCircle(
+                        color = themeColor.copy(alpha = 0.3f),
+                        radius = 12.dp.toPx(),
+                        center = screenPos
+                    )
+                    drawCircle(
+                        color = Color.Black,
+                        radius = 8.dp.toPx(),
+                        center = screenPos
+                    )
+                    drawCircle(
+                        color = themeColor,
+                        radius = 6.dp.toPx(),
+                        center = screenPos
+                    )
                 }
             }
 
             // 5. REAL-TIME DYNAMIC LINE OVERLAY AS USER MOVES THE PHONE
-            // (not applicable in VOLUME mode: no single "last marked corner"
-            // to draw a live line towards while the point cloud is scanning)
-            if (mode != MeasurementMode.VOLUME && points.isNotEmpty()) {
+            if (points.isNotEmpty()) {
                 val lastPoint3D = points.last()
                 val lastScreenPos = projectPoint3DToScreen(lastPoint3D, latestFrame, size.width, size.height)
                 val activeTargetScreenPos = Offset(centerX, centerY)
@@ -940,10 +842,8 @@ fun MeasureScreen(
                     )
                 }
 
-                // 6. Real-Time Closing Line for Area Mode
-                // (VOLUME is excluded from this whole block above, so this
-                // only ever fires for AREA)
-                if (mode == MeasurementMode.AREA && points.size >= 2) {
+                // 6. Real-Time Closing Line for Area / Volume Mode
+                if ((mode == MeasurementMode.AREA || mode == MeasurementMode.VOLUME) && points.size >= 2) {
                     val firstPoint3D = points.first()
                     val firstScreenPos = projectPoint3DToScreen(firstPoint3D, latestFrame, size.width, size.height)
 
@@ -1399,11 +1299,11 @@ fun MeasureScreen(
                             ) {
                                 materials.forEach { material ->
                                     DropdownMenuItem(
-                                        text = {
+                                        text = { 
                                             Text(
                                                 text = "${material.name} - ${material.densityKgPerM3.toInt()} kg/m³",
-                                                color = Color.White
-                                            )
+                                                color = Color.White 
+                                            ) 
                                         },
                                         onClick = {
                                             viewModel.setMaterial(material)
@@ -1412,48 +1312,6 @@ fun MeasureScreen(
                                     )
                                 }
                             }
-                        }
-
-                        // Editable density (kg/m³) for the selected material
-                        var densityInput by remember(selectedMaterial.name) {
-                            mutableStateOf(selectedMaterial.densityKgPerM3.toInt().toString())
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "Densidad:",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Slate400
-                            )
-                            OutlinedTextField(
-                                value = densityInput,
-                                onValueChange = { input ->
-                                    densityInput = input
-                                    input.toFloatOrNull()?.let { viewModel.setCustomDensity(it) }
-                                },
-                                singleLine = true,
-                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
-                                ),
-                                textStyle = androidx.compose.ui.text.TextStyle(
-                                    fontSize = 13.sp,
-                                    color = Color.White
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(52.dp)
-                                    .testTag("input_material_density")
-                            )
-                            Text(
-                                text = "kg/m³",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Slate400
-                            )
                         }
                     }
                 }
@@ -1466,7 +1324,7 @@ fun MeasureScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .widthIn(max = 640.dp)
-                    .padding(top = if (mode == MeasurementMode.VOLUME) 340.dp else 140.dp, start = 20.dp, end = 20.dp)
+                    .padding(top = if (mode == MeasurementMode.VOLUME) 210.dp else 140.dp, start = 20.dp, end = 20.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -1476,7 +1334,6 @@ fun MeasureScreen(
                         text = when {
                             points.isEmpty() -> strings.pointInstruction
                             points.size < mode.minPoints -> "${strings.addPoint}: ${points.size}/${mode.minPoints}"
-                            mode == MeasurementMode.AREA -> strings.surfaceClosed
                             else -> strings.ready
                         },
                         style = MaterialTheme.typography.bodySmall.copy(textAlign = TextAlign.Center),
@@ -1519,8 +1376,7 @@ fun MeasureScreen(
                 .fillMaxWidth()
                 .widthIn(max = 640.dp)
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Calculated Result Live Card
@@ -1585,7 +1441,7 @@ fun MeasureScreen(
                             val massTons = (calculatedValue * selectedMaterial.densityKgPerM3) / 1000.0
                             
                             Text(
-                                text = "Masa: ${String.format(java.util.Locale.US, "%.2f", massTons)} Ton (${selectedMaterial.name})",
+                                text = "Masa: ${String.format("%.2f", massTons)} Ton (${selectedMaterial.name})",
                                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White,
                                 modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)

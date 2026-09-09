@@ -6,7 +6,6 @@ import com.example.data.model.PointCloudColorMap
 import com.example.data.model.PointCloudPoint
 import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
-import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -47,90 +46,6 @@ object GeometryUtils {
     }
 
     /**
-     * Estimates footprint area from an unordered 3D point cloud by projecting
-     * points onto their best-fit plane (Newell's normal) and computing the
-     * convex hull area there. Point-cloud samples arrive in scan order, not
-     * perimeter order, so polygonArea3D (which needs ordered vertices) would
-     * give a near-random result if fed the raw cloud directly.
-     */
-    fun pointCloudFootprintArea(points: List<Point3D>): Double {
-        if (points.size < 3) return 0.0
-
-        var nx = 0.0; var ny = 0.0; var nz = 0.0
-        var cx = 0.0; var cy = 0.0; var cz = 0.0
-        for (i in points.indices) {
-            val cur = points[i]
-            val next = points[(i + 1) % points.size]
-            nx += (cur.y - next.y) * (cur.z + next.z)
-            ny += (cur.z - next.z) * (cur.x + next.x)
-            nz += (cur.x - next.x) * (cur.y + next.y)
-            cx += cur.x; cy += cur.y; cz += cur.z
-        }
-        val n = points.size
-        cx /= n; cy /= n; cz /= n
-
-        var len = sqrt(nx * nx + ny * ny + nz * nz)
-        if (len < 1e-9) { nx = 0.0; ny = 1.0; nz = 0.0; len = 1.0 }
-        nx /= len; ny /= len; nz /= len
-
-        // Build an orthonormal basis (ux,uy,uz)/(vx,vy,vz) spanning the plane.
-        val (ax, ay, az) = if (kotlin.math.abs(ny) < 0.9) Triple(0.0, 1.0, 0.0) else Triple(1.0, 0.0, 0.0)
-        var ux = ny * az - nz * ay
-        var uy = nz * ax - nx * az
-        var uz = nx * ay - ny * ax
-        val ulen = sqrt(ux * ux + uy * uy + uz * uz)
-        ux /= ulen; uy /= ulen; uz /= ulen
-        val vx = ny * uz - nz * uy
-        val vy = nz * ux - nx * uz
-        val vz = nx * uy - ny * ux
-
-        val projected = points.map { p ->
-            val dx = p.x - cx; val dy = p.y - cy; val dz = p.z - cz
-            Pair(dx * ux + dy * uy + dz * uz, dx * vx + dy * vy + dz * vz)
-        }
-
-        val hull = convexHull2D(projected)
-        if (hull.size < 3) return 0.0
-
-        var area = 0.0
-        for (i in hull.indices) {
-            val (x1, y1) = hull[i]
-            val (x2, y2) = hull[(i + 1) % hull.size]
-            area += x1 * y2 - x2 * y1
-        }
-        return kotlin.math.abs(area) / 2.0
-    }
-
-    /**
-     * Andrew's monotone chain convex hull on 2D points.
-     */
-    private fun convexHull2D(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
-        val sorted = points.distinct().sortedWith(compareBy({ it.first }, { it.second }))
-        if (sorted.size < 3) return sorted
-
-        fun cross(o: Pair<Double, Double>, a: Pair<Double, Double>, b: Pair<Double, Double>): Double =
-            (a.first - o.first) * (b.second - o.second) - (a.second - o.second) * (b.first - o.first)
-
-        val lower = mutableListOf<Pair<Double, Double>>()
-        for (p in sorted) {
-            while (lower.size >= 2 && cross(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
-                lower.removeAt(lower.size - 1)
-            }
-            lower.add(p)
-        }
-        val upper = mutableListOf<Pair<Double, Double>>()
-        for (p in sorted.reversed()) {
-            while (upper.size >= 2 && cross(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
-                upper.removeAt(upper.size - 1)
-            }
-            upper.add(p)
-        }
-        lower.removeAt(lower.size - 1)
-        upper.removeAt(upper.size - 1)
-        return lower + upper
-    }
-
-    /**
      * Calculates volume from surface area and height/depth dimension.
      */
     fun calculateVolume(areaSquareMeters: Double, heightMeters: Double): Double {
@@ -146,7 +61,7 @@ object GeometryUtils {
             if (meters < 1.0) {
                 "${(meters * 100).roundToInt()} cm"
             } else {
-                String.format(Locale.US, "%.2f m", meters)
+                String.format("%.2f m", meters)
             }
         } else {
             val totalInches = meters * 39.3701
@@ -170,7 +85,7 @@ object GeometryUtils {
             if (squareMeters < 1.0) {
                 "${(squareMeters * 10000).roundToInt()} cm²"
             } else {
-                String.format(Locale.US, "%.2f m²", squareMeters)
+                String.format("%.2f m²", squareMeters)
             }
         } else {
             val squareFeet = squareMeters * 10.7639
@@ -178,7 +93,7 @@ object GeometryUtils {
                 val squareInches = squareMeters * 1550.0
                 "${squareInches.roundToInt()} in²"
             } else {
-                String.format(Locale.US, "%.2f ft²", squareFeet)
+                String.format("%.2f ft²", squareFeet)
             }
         }
     }
@@ -193,9 +108,9 @@ object GeometryUtils {
                 val cm3 = cubicMeters * 1000000.0
                 "${cm3.roundToInt()} cm³"
             } else if (cubicMeters < 1.0) {
-                String.format(Locale.US, "%.1f L (%.3f m³)", liters, cubicMeters)
+                String.format("%.1f L (%.3f m³)", liters, cubicMeters)
             } else {
-                String.format(Locale.US, "%.2f m³ (%.0f L)", cubicMeters, liters)
+                String.format("%.2f m³ (%.0f L)", cubicMeters, liters)
             }
         } else {
             val cubicFeet = cubicMeters * 35.3147
@@ -204,7 +119,7 @@ object GeometryUtils {
                 val cubicInches = cubicMeters * 61023.7
                 "${cubicInches.roundToInt()} in³"
             } else {
-                String.format(Locale.US, "%.2f ft³ (%.1f gal)", cubicFeet, gallons)
+                String.format("%.2f ft³ (%.1f gal)", cubicFeet, gallons)
             }
         }
     }
