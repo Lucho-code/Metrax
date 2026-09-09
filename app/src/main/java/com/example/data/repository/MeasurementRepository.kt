@@ -16,6 +16,8 @@ class MeasurementRepository(
 
     fun measurementsForPile(pileId: Long): Flow<List<MeasurementEntity>> = dao.getByPileId(pileId)
 
+    fun measurementById(id: Long): Flow<MeasurementEntity?> = dao.getById(id)
+
     fun pileById(pileId: Long): Flow<PileEntity?> = pileDao.getPileById(pileId)
 
     suspend fun insert(measurement: MeasurementEntity): Long {

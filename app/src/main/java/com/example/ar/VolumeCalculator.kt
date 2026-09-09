@@ -129,15 +129,21 @@ object VolumeCalculator {
         )
     }
 
+    /** Sentinel used in [ArVolumeResult.heightGrid] for a cell with no depth sample ("area not seen by the camera"). */
+    const val NO_DATA_HEIGHT = -1f
+
     /**
      * Row-major grid of height-above-base (meters, clamped to >= 0) for every
-     * sampled point in [mesh], null/missing samples mapped to 0f. Used only to
+     * sampled point in [mesh]; a cell where no depth was recovered is marked
+     * with [NO_DATA_HEIGHT] rather than 0f, so callers can tell "the surface
+     * is flush with the base here" apart from "the camera never saw this
+     * spot" (SR Measure's "Areas not seen by camera" overlay). Used only to
      * render the topographic contour/heatmap preview — not part of the volume
      * math itself (that stays in [integrateGridVolume]).
      */
     private fun buildHeightGrid(mesh: List<List<WorldPoint?>>, baseElevationY: Float): List<List<Float>> {
         return mesh.map { row ->
-            row.map { point -> if (point == null) 0f else max(0f, point.y - baseElevationY) }
+            row.map { point -> if (point == null) NO_DATA_HEIGHT else max(0f, point.y - baseElevationY) }
         }
     }
 
@@ -155,8 +161,12 @@ object VolumeCalculator {
             maxHeightMeters = result.maxHeightMeters * factor,
             // Heights scale linearly too, same as maxHeightMeters — otherwise the
             // contour/heatmap preview (normalized against maxHeightMeters) would
-            // no longer agree with the corrected numbers shown next to it.
-            heightGrid = result.heightGrid.map { row -> row.map { (it * factor).toFloat() } }
+            // no longer agree with the corrected numbers shown next to it. The
+            // NO_DATA_HEIGHT sentinel is left untouched so it keeps meaning
+            // exactly "no depth sample here", not some scaled negative value.
+            heightGrid = result.heightGrid.map { row ->
+                row.map { if (it == NO_DATA_HEIGHT) it else (it * factor).toFloat() }
+            }
         )
     }
 

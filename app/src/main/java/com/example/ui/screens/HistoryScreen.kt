@@ -6,6 +6,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,8 @@ import com.example.ui.viewmodel.MeasurementViewModel
 import com.example.util.GeometryUtils
 import com.example.util.PhotoStorage
 import com.example.util.ShareUtils
+import com.example.util.buildMeasurementSummaryText
+import com.example.util.overallConfidenceLevel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -91,7 +94,8 @@ private const val THUMBNAIL_REQ_SIZE_PX = 120
 @Composable
 fun HistoryScreen(
     viewModel: MeasurementViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToDetail: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val historyItems by viewModel.historyList.collectAsStateWithLifecycle()
@@ -288,16 +292,17 @@ fun HistoryScreen(
                         MeasurementCardItem(
                             item = item,
                             unitSystem = unitSystem,
+                            onClick = { onNavigateToDetail(item.id) },
                             onDelete = { viewModel.deleteMeasurement(item.id) },
                             onCopy = {
-                                val textToCopy = buildSummaryText(item, unitSystem)
+                                val textToCopy = buildMeasurementSummaryText(item, unitSystem)
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Medición", textToCopy)
                                 clipboard.setPrimaryClip(clip)
                                 Toast.makeText(context, "Copiado al portapapeles", Toast.LENGTH_SHORT).show()
                             },
                             onShare = {
-                                val textToShare = buildSummaryText(item, unitSystem)
+                                val textToShare = buildMeasurementSummaryText(item, unitSystem)
                                 ShareUtils.shareMeasurement(context, "Medición: ${item.title}", textToShare, item.photoPath)
                             }
                         )
@@ -308,51 +313,11 @@ fun HistoryScreen(
     }
 }
 
-private fun buildSummaryText(item: MeasurementEntity, unitSystem: UnitSystem): String {
-    val modeLabel = when (item.mode) {
-        MeasurementMode.DISTANCE.name -> "Distancia"
-        MeasurementMode.AREA.name -> "Área"
-        MeasurementMode.VOLUME.name -> "Volumen"
-        else -> item.mode
-    }
-
-    val formattedVal = when (item.mode) {
-        MeasurementMode.DISTANCE.name -> GeometryUtils.formatLength(item.value, unitSystem)
-        MeasurementMode.AREA.name -> GeometryUtils.formatArea(item.value, unitSystem)
-        MeasurementMode.VOLUME.name -> GeometryUtils.formatVolume(item.value, unitSystem)
-        else -> "${item.value}"
-    }
-
-    val extraInfo = if (item.mode == MeasurementMode.VOLUME.name && item.heightValue > 0) {
-        "\n• Altura/Profundidad: ${GeometryUtils.formatLength(item.heightValue, unitSystem)}"
-    } else ""
-
-    val arInfo = if (item.method == "AR_POINT_CLOUD") {
-        val coverage = item.surfaceCoverageConfidence?.let { "${(it * 100).toInt()}%" } ?: "N/D"
-        "\n🔬 Método: ARCore Depth + Nube de puntos\n📡 Cobertura de superficie: $coverage"
-    } else ""
-
-    val tonnageInfo = item.tonnage?.let {
-        "\n⚖️ Peso estimado: ${GeometryUtils.formatTonnage(it, unitSystem)} (${item.materialType ?: ""})"
-    } ?: ""
-
-    return "📏 Metraje Instante - $modeLabel\n" +
-            "📌 Título: ${item.title}\n" +
-            "📊 Resultado: $formattedVal$extraInfo$tonnageInfo\n" +
-            "🌐 Superficie: ${item.planeType}$arInfo"
-}
-
-/** Combined confidence for a saved AR measurement: the weaker of its two coverage signals. */
-private fun overallConfidenceLevel(item: MeasurementEntity): ConfidenceLevel? {
-    val surface = item.surfaceCoverageConfidence ?: return null
-    val toe = item.toeCoverageConfidence ?: surface
-    return ConfidenceLevel.fromRatio(minOf(surface, toe))
-}
-
 @Composable
 private fun MeasurementCardItem(
     item: MeasurementEntity,
     unitSystem: UnitSystem,
+    onClick: () -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit
@@ -374,6 +339,7 @@ private fun MeasurementCardItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .testTag("card_history_item_${item.id}"),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(

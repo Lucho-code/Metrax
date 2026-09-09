@@ -21,5 +21,9 @@ data class MeasurementEntity(
     val photoPath: String? = null, // absolute path to a saved JPEG snapshot of the scene, in app-internal storage
     val materialType: String? = null, // MaterialType enum name, null = sin material asignado
     val tonnage: Double? = null, // volume * material density at save time, in metric tons
-    val pileId: Long? = null // FK to PileEntity.id, null = sin acopio/sitio asignado
+    val pileId: Long? = null, // FK to PileEntity.id, null = sin acopio/sitio asignado
+    val latitude: Double? = null, // best-effort last-known GPS location at save time, null if unavailable/denied
+    val longitude: Double? = null,
+    val calibrationLabel: String = "Sin calibrar", // human-readable scaling/calibration method active at save time
+    val heightGridJson: String? = null // AR_POINT_CLOUD only: serialized height grid for the contour map preview on the detail screen
 )

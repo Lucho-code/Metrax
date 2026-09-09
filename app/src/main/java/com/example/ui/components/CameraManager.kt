@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.util.LocationUtil
 
 @Composable
 fun CameraManager(
@@ -53,11 +54,22 @@ fun CameraManager(
         onCameraReady(isGranted)
     }
 
+    // Best-effort, non-blocking: lets saved measurements be tagged with a
+    // location later. Camera keeps working regardless of the outcome.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* result not needed here; LocationUtil re-checks permission at save time */ }
+
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         } else {
             onCameraReady(true)
+        }
+        if (!LocationUtil.hasLocationPermission(context)) {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
         }
     }
 

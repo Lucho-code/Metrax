@@ -14,6 +14,7 @@ import com.example.data.model.MeasurementMethod
 import com.example.data.model.MeasurementMode
 import com.example.data.model.PlaneType
 import com.example.data.repository.MeasurementRepository
+import com.example.util.LocationUtil
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -137,6 +138,18 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
         }.toString()
 
         val tonnage = if (material == MaterialType.NONE) null else result.volumeCubicMeters * material.densityTonPerCubicMeter
+        val correctionFactor = _uiState.value.lengthCorrectionFactor
+        val calibrationLabel = if (correctionFactor == 1.0) {
+            "Sin calibrar (ARCore)"
+        } else {
+            "ARCore · corrección ×${"%.3f".format(correctionFactor)}"
+        }
+        val location = LocationUtil.lastKnownLocation(getApplication())
+        val heightGridJson = JSONArray().apply {
+            result.heightGrid.forEach { row ->
+                put(JSONArray().apply { row.forEach { height -> put(height) } })
+            }
+        }.toString()
 
         val entity = MeasurementEntity(
             mode = MeasurementMode.VOLUME.name,
@@ -152,7 +165,11 @@ class ArMeasurementViewModel(application: Application) : AndroidViewModel(applic
             photoPath = _capturedPhotoPath.value,
             materialType = if (tonnage != null) material.name else null,
             tonnage = tonnage,
-            pileId = pileId
+            pileId = pileId,
+            latitude = location?.latitude,
+            longitude = location?.longitude,
+            calibrationLabel = calibrationLabel,
+            heightGridJson = heightGridJson
         )
 
         viewModelScope.launch {

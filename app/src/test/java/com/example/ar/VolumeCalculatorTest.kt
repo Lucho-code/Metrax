@@ -160,6 +160,44 @@ class VolumeCalculatorTest {
     }
 
     @Test
+    fun buildResult_marksUncoveredCellsWithNoDataSentinelInHeightGrid() {
+        val toePoints = listOf(
+            WorldPoint(-1f, 0f, -1f),
+            WorldPoint(1f, 0f, -1f),
+            WorldPoint(1f, 0f, 1f),
+            WorldPoint(-1f, 0f, 1f)
+        )
+        val mesh = listOf(
+            listOf(WorldPoint(0f, 1.5f, 0f), WorldPoint(1f, 1.5f, 0f)),
+            listOf(null, WorldPoint(1f, 1.5f, 1f))
+        )
+
+        val result = checkNotNull(VolumeCalculator.buildResult(toePoints, mesh, 1f, 20))
+
+        assertEquals(VolumeCalculator.NO_DATA_HEIGHT, result.heightGrid[1][0], 1e-6f)
+        assertEquals(1.5f, result.heightGrid[0][0], 1e-6f)
+    }
+
+    @Test
+    fun applyLengthCorrection_leavesNoDataSentinelUntouched() {
+        val result = com.example.data.model.ArVolumeResult(
+            volumeCubicMeters = 10.0,
+            baseAreaSquareMeters = 5.0,
+            maxHeightMeters = 2.0,
+            surfaceCoverageConfidence = 1.0f,
+            toeCoverageConfidence = 1.0f,
+            gridResolution = 20,
+            toePoints = emptyList(),
+            heightGrid = listOf(listOf(1.0f, VolumeCalculator.NO_DATA_HEIGHT))
+        )
+
+        val corrected = VolumeCalculator.applyLengthCorrection(result, 2.0)
+
+        assertEquals(2.0f, corrected.heightGrid[0][0], 1e-6f)
+        assertEquals(VolumeCalculator.NO_DATA_HEIGHT, corrected.heightGrid[0][1], 1e-6f)
+    }
+
+    @Test
     fun applyLengthCorrection_scalesHeightGridSoContourMapStaysConsistentWithCorrectedHeight() {
         val result = com.example.data.model.ArVolumeResult(
             volumeCubicMeters = 10.0,

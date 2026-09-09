@@ -12,6 +12,7 @@ import com.example.ui.screens.ArMeasureScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MeasureScreen
+import com.example.ui.screens.MeasurementDetailScreen
 import com.example.ui.screens.PileDetailScreen
 import com.example.ui.screens.PilesScreen
 import com.example.ui.viewmodel.MeasurementViewModel
@@ -23,8 +24,10 @@ object Routes {
     const val HISTORY = "history"
     const val PILES = "piles"
     const val PILE_DETAIL = "pile_detail/{pileId}"
+    const val MEASUREMENT_DETAIL = "measurement_detail/{measurementId}"
 
     fun pileDetail(pileId: Long) = "pile_detail/$pileId"
+    fun measurementDetail(measurementId: Long) = "measurement_detail/$measurementId"
 }
 
 @Composable
@@ -102,7 +105,22 @@ fun AppNavigation(
                 viewModel = viewModel,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToDetail = { measurementId ->
+                    navController.navigate(Routes.measurementDetail(measurementId))
                 }
+            )
+        }
+
+        composable(
+            route = Routes.MEASUREMENT_DETAIL,
+            arguments = listOf(navArgument("measurementId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val measurementId = backStackEntry.arguments?.getLong("measurementId") ?: 0L
+            MeasurementDetailScreen(
+                measurementId = measurementId,
+                viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

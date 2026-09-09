@@ -15,6 +15,9 @@ interface MeasurementDao {
     @Query("SELECT * FROM measurements WHERE pileId = :pileId ORDER BY createdAt DESC")
     fun getByPileId(pileId: Long): Flow<List<MeasurementEntity>>
 
+    @Query("SELECT * FROM measurements WHERE id = :id")
+    fun getById(id: Long): Flow<MeasurementEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(measurement: MeasurementEntity): Long
 

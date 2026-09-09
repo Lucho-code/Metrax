@@ -30,6 +30,7 @@ import com.example.ar.ArAvailability
 import com.example.ar.ArFrameUiState
 import com.example.ar.ArVolumeRenderer
 import com.example.data.model.ArVolumeResult
+import com.example.util.LocationUtil
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Config
 import com.google.ar.core.Session
@@ -72,8 +73,19 @@ fun ArCameraView(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> hasCameraPermission = granted }
 
+    // Best-effort, non-blocking: lets saved AR scans be tagged with a
+    // location later. AR keeps working regardless of the outcome.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* result not needed here; LocationUtil re-checks permission at save time */ }
+
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
+        if (!LocationUtil.hasLocationPermission(context)) {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
     }
 
     LaunchedEffect(hasCameraPermission) {

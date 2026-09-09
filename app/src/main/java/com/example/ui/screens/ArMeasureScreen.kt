@@ -67,11 +67,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ar.ArAvailability
 import com.example.ar.ArTrackingStatus
-import com.example.data.model.ArVolumeResult
 import com.example.data.model.ConfidenceLevel
 import com.example.data.model.MaterialType
 import com.example.data.model.UnitSystem
 import com.example.ui.components.ArCameraView
+import com.example.ui.components.ContourMapView
 import com.example.ui.components.MaterialSelectorRow
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.AccentRose
@@ -516,11 +516,10 @@ fun ArMeasureScreen(
                             )
                         }
                         if (showContourMap) {
-                            ContourMapPreview(
-                                result = result,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(160.dp)
+                            ContourMapView(
+                                heightGrid = result.heightGrid,
+                                maxHeightMeters = result.maxHeightMeters,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
@@ -769,62 +768,6 @@ private fun OverallConfidencePill(level: ConfidenceLevel) {
             color = color,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
         )
-    }
-}
-
-/**
- * Color-banded height heatmap of the scanned pile (a topographic "contour map"
- * of discrete elevation bands, from blue/low to red/high), built from the same
- * grid mesh used for the volume integration. Purely a visualization aid shown
- * right after a scan — not persisted with the measurement.
- */
-@Composable
-private fun ContourMapPreview(result: ArVolumeResult, modifier: Modifier = Modifier) {
-    val bandColors = listOf(
-        Color(0xFF1D4ED8), // deep blue (lowest)
-        Color(0xFF0EA5E9),
-        Color(0xFF22D3EE),
-        Color(0xFF4ADE80),
-        Color(0xFFFACC15),
-        Color(0xFFF97316),
-        Color(0xFFEF4444)  // red (highest)
-    )
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        color = Color.Black.copy(alpha = 0.4f)
-    ) {
-        val grid = result.heightGrid
-        if (grid.size < 2 || result.maxHeightMeters <= 0.0) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "Sin datos suficientes para el mapa de contornos",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.LightGray
-                )
-            }
-        } else {
-            Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
-                val rows = grid.size
-                val cols = grid.maxOf { it.size }
-                if (cols < 2) return@Canvas
-                val cellWidth = size.width / cols
-                val cellHeight = size.height / rows
-                val maxHeight = result.maxHeightMeters.toFloat().coerceAtLeast(0.001f)
-                for (row in 0 until rows) {
-                    val rowData = grid[row]
-                    for (col in rowData.indices) {
-                        val ratio = (rowData[col] / maxHeight).coerceIn(0f, 1f)
-                        val bandIndex = (ratio * (bandColors.size - 1)).toInt().coerceIn(0, bandColors.size - 1)
-                        drawRect(
-                            color = bandColors[bandIndex],
-                            topLeft = Offset(col * cellWidth, (rows - 1 - row) * cellHeight),
-                            size = androidx.compose.ui.geometry.Size(cellWidth, cellHeight)
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 

@@ -15,6 +15,7 @@ import com.example.data.model.Point3D
 import com.example.data.model.UnitSystem
 import com.example.data.repository.MeasurementRepository
 import com.example.util.GeometryUtils
+import com.example.util.LocationUtil
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -71,6 +72,11 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _lastCalibrationCorrection = MutableStateFlow<Double?>(null)
     val lastCalibrationCorrection: StateFlow<Double?> = _lastCalibrationCorrection.asStateFlow()
+
+    // Human-readable description of the scaling method active for the next save
+    // (SR Measure's "Scaling Method" field on a measurement's detail screen).
+    private val _calibrationLabel = MutableStateFlow("Sin calibrar")
+    val calibrationLabel: StateFlow<String> = _calibrationLabel.asStateFlow()
 
     // Custom real-world length (meters) for the KNOWN_MEASUREMENT calibration source.
     private val _knownLengthMeters = MutableStateFlow(1.0)
@@ -269,6 +275,18 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         val previousScale = _scaleFactor.value
         _scaleFactor.value = newScale.coerceIn(0.02, 50.0)
         _lastCalibrationCorrection.value = _scaleFactor.value / previousScale
+        _calibrationLabel.value = when (_calibrationMethod.value) {
+            CalibrationMethod.REFERENCE_OBJECT -> {
+                val presetName = if (_calibrationPreset.value == CalibrationPreset.CUSTOM) {
+                    "Medida personalizada (${GeometryUtils.formatLength(targetLength, UnitSystem.METRIC)})"
+                } else {
+                    _calibrationPreset.value.displayName
+                }
+                "Objeto de referencia: $presetName"
+            }
+            CalibrationMethod.KNOWN_MEASUREMENT ->
+                "Medida real conocida (${GeometryUtils.formatLength(targetLength, UnitSystem.METRIC)})"
+        }
         _calibrationTapModeActive.value = false
         _calibrationTapPoints.value = emptyList()
         return true
@@ -306,6 +324,8 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     fun measurementsForPile(pileId: Long): Flow<List<MeasurementEntity>> =
         repository.measurementsForPile(pileId)
+
+    fun measurementById(id: Long): Flow<MeasurementEntity?> = repository.measurementById(id)
 
     fun pileById(pileId: Long): Flow<PileEntity?> = repository.pileById(pileId)
 
@@ -405,6 +425,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
         val tonnage = calculateCurrentTonnage()
         val material = _selectedMaterial.value
+        val location = LocationUtil.lastKnownLocation(getApplication())
 
         val entity = MeasurementEntity(
             mode = _mode.value.name,
@@ -417,7 +438,10 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             photoPath = _capturedPhotoPath.value,
             materialType = if (tonnage != null) material.name else null,
             tonnage = tonnage,
-            pileId = _activePileId.value
+            pileId = _activePileId.value,
+            latitude = location?.latitude,
+            longitude = location?.longitude,
+            calibrationLabel = _calibrationLabel.value
         )
 
         viewModelScope.launch {
