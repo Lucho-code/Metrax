@@ -629,7 +629,7 @@ fun ArMeasureScreen(
                         val tonnageLine = currentTonnage?.let {
                             "⚖️ Peso estimado: ${GeometryUtils.formatTonnage(it, unitSystem)} (${selectedMaterial.displayName})\n"
                         } ?: ""
-                        val text = "📏 Metraje Instante - Volumen AR\n" +
+                        val text = "📏 Metrax - Volumen AR\n" +
                             "📊 Volumen: ${GeometryUtils.formatVolume(result.volumeCubicMeters, unitSystem)}\n" +
                             "📐 Área base: ${GeometryUtils.formatArea(result.baseAreaSquareMeters, unitSystem)}\n" +
                             "📈 Altura máxima: ${GeometryUtils.formatLength(result.maxHeightMeters, unitSystem)}\n" +

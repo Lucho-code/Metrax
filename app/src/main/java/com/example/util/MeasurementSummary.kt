@@ -38,7 +38,7 @@ fun buildMeasurementSummaryText(item: MeasurementEntity, unitSystem: UnitSystem)
         "\n📍 Ubicación: %.5f, %.5f".format(item.latitude, item.longitude)
     } else ""
 
-    return "📏 Metraje Instante - $modeLabel\n" +
+    return "📏 Metrax - $modeLabel\n" +
             "📌 Título: ${item.title}\n" +
             "📊 Resultado: $formattedVal$extraInfo$tonnageInfo\n" +
             "🌐 Superficie: ${item.planeType}$arInfo\n" +

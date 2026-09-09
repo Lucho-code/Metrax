@@ -1,5 +1,5 @@
 {
-  "name": "Metraje Instante",
+  "name": "Metrax",
   "description": "Medición de distancias, áreas y volúmenes en tiempo real con cámara AR e historial",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

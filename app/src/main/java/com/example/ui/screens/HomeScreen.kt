@@ -106,7 +106,7 @@ fun HomeScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Straighten,
-                        contentDescription = "Logo Metraje Instante",
+                        contentDescription = "Logo Metrax",
                         tint = Color.White,
                         modifier = Modifier.size(32.dp)
                     )
@@ -114,7 +114,7 @@ fun HomeScreen(
 
                 Column {
                     Text(
-                        text = "Metraje Instante",
+                        text = "Metrax",
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 28.sp
